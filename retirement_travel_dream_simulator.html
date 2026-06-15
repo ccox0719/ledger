@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Retirement + Travel Dream Simulator</title>
+<style>
+  :root {
+    --bg:#f5f7fb; --panel:#ffffff; --panel2:#f9fafb; --text:#111827; --muted:#6b7280; --line:#d1d5db;
+    --green:#16a34a; --orange:#d97706; --purple:#7c3aed; --blue:#2563eb; --pink:#db2777; --red:#dc2626;
+    --teal:#0f766e; --shadow:0 14px 36px rgba(15,23,42,.10);
+  }
+  body.dark-theme {
+    --bg:#020617; --panel:#0f172a; --panel2:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#374151;
+    --shadow:0 18px 44px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px;min-height:100vh;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--text)}
+  .app{max-width:1250px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:var(--shadow)}
+  .section-disabled{opacity:.45;pointer-events:none;user-select:none}
+  header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+  h1{font-size:24px;margin:0 0 4px}.sub{font-size:12px;color:var(--muted);margin:0;max-width:760px;line-height:1.45}
+  button, select{border:0;border-radius:999px;padding:8px 14px;font-weight:750;cursor:pointer;background:var(--purple);color:white;letter-spacing:.03em;font-size:12px}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--line);cursor:pointer;text-transform:none;letter-spacing:0}
+  .ghost{background:transparent;color:var(--text);border:1px solid var(--line);text-transform:none;letter-spacing:0;font-weight:650}
+  .section{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  .section-title{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:0 0 8px;font-weight:850}
+  .collapsible-section>.section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;user-select:none;border-radius:9px;padding:5px 7px;margin:-5px -7px 8px}
+  .collapsible-section>.section-title:hover,.collapsible-section>.section-title:focus{background:var(--panel2);color:var(--text);outline:none}
+  .collapsible-section>.section-title::after{content:"+";font-size:18px;line-height:1;color:var(--purple)}
+  .collapsible-section:not(.collapsed)>.section-title::after{content:"−"}
+  .collapsible-section.collapsed>.section-title{margin-bottom:0}
+  .collapsible-section.collapsed>:not(.section-title){display:none}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:10px 14px}
+  label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  input[type="number"]{width:100%;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:11px;padding:8px 9px;font-size:14px}
+  input[type="checkbox"]{accent-color:var(--purple);width:16px;height:16px}
+  .check{display:flex;align-items:center;gap:8px;color:var(--text);font-size:13px;margin-bottom:8px}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+  .note{font-size:11px;color:var(--muted);line-height:1.4}
+  /* Chart wrapper — gives #chart-overlay and .chart-tip a positioning context */
+  .chart-wrap{position:relative;margin-top:16px;}
+  #chart{width:100%;height:410px;border:1px solid var(--line);border-radius:15px;background:var(--panel2)}
+  #chart-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;border-radius:15px;}
+  .chart-tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 13px;font-size:12px;box-shadow:var(--shadow);min-width:165px;display:none;z-index:10;}
+  .chart-tip b{font-size:13px;display:block;margin-bottom:6px;color:var(--text);}
+  .chart-tip .ctr{display:flex;justify-content:space-between;gap:14px;margin-bottom:2px;align-items:center;}
+  .chart-tip .ctd{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-right:5px;}
+  .chart-tip .ctl{display:flex;align-items:center;}
+  /* Section left-border accent */
+  .ac{border-left:3px solid var(--ac,var(--line));padding-left:15px;}
+  /* Hero and warning fact cards */
+  .fact-hero{background:var(--hero,var(--green));border-color:transparent !important;}
+  .fact-hero .k,.fact-hero .s{color:rgba(255,255,255,.76) !important;}
+  .fact-hero .v{font-size:22px;color:#fff !important;}
+  .fact-warn{border-color:var(--red) !important;}
+  .fact-warn .v{color:var(--red);}
+  /* Dollar prefix wrapper */
+  .pfx{position:relative;display:block;}
+  .pfx::before{content:"$";position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none;z-index:1;}
+  .pfx input{padding-left:20px !important;width:100%;}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:10px;margin-top:14px}
+  .fact{border:1px solid var(--line);background:var(--panel2);border-radius:15px;padding:11px}
+  .fact .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:850}.fact .v{font-size:19px;margin-top:4px;font-weight:850}.fact .s{font-size:11px;color:var(--muted);margin-top:3px}
+  .legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:9px;font-size:11px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}.sw{width:16px;height:4px;border-radius:99px}.r{background:var(--green)}.s{background:var(--orange)}.m{background:var(--purple)}.b{background:var(--blue)}.p{background:var(--pink)}.x{background:var(--red)}.t{background:var(--teal)}
+  .table-wrap{overflow:auto;margin-top:12px;border:1px solid var(--line);border-radius:14px}.mini-table{width:100%;border-collapse:collapse;font-size:12px}.mini-table th,.mini-table td{padding:8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.mini-table th:first-child,.mini-table td:first-child{text-align:left}.mini-table th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.mini-table tr:last-child td{border-bottom:0}
+  .scenario-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:7px 10px;font-size:12px;color:var(--muted)}
+  .warning{color:var(--red);font-weight:800}
+  .source-links a{color:var(--blue)}
+  @media(max-width:700px){header{flex-direction:column}#chart{height:330px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Retirement + Travel Dream Simulator</h1>
+      <p class="sub">Adjust any input and the chart updates instantly. Changes save automatically on this browser. Select a section heading to open or close it. <strong>Risky</strong> = your entered returns. <strong>Safe</strong> = returns reduced 2% (pessimistic markets).</p>
+    </div>
+    <div class="actions" style="margin-top:0">
+      <button class="ghost" type="button" onclick="toggleTheme()"><span id="themeLabel">Dark</span></button>
+    </div>
+  </header>
+
+  <div class="section">
+    <p class="section-title">Scenario Presets</p>
+    <div class="scenario-row">
+      <select id="preset" onchange="applyPreset()">
+        <option value="custom">Custom</option>
+        <option value="iowaBase">Iowa Home Base + 6 Month Travel</option>
+        <option value="fullVan">Full-Time Class B Travel</option>
+        <option value="earlySimple">Early Simple Retirement</option>
+        <option value="annWorks">Annie Works Remote on Road</option>
+        <option value="expensiveRig">Big Rig Creep Warning</option>
+      </select>
+      <span class="pill">Chart updates automatically as you type</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Core Retirement</p>
+    <div class="grid">
+      <label>Chris's Current Age<input id="age" type="number" value="43" min="18" max="95"></label>
+      <label title="Age when the household retirement/travel plan begins. Use the toggles below to choose who actually stops working then.">Retirement / Travel Plan Starts at Age<input id="retireAge" type="number" value="55" min="30" max="85"></label>
+      <label>Plan Through Age (lifespan)<input id="endAge" type="number" value="90" min="60" max="115"></label>
+      <label title="Total value of all investment accounts today (401k, IRA, brokerage, etc.)">Current Portfolio ($)<input id="balance" type="number" value="625000" min="0" step="500"></label>
+      <label title="How much you add to investments each year while working">Annual Savings Contribution ($)<input id="contri" type="number" value="24000" min="0" step="500"></label>
+      <label title="Your target annual spending in retirement (today's dollars, before Social Security or other income offsets)">Target Annual Retirement Spending ($)<input id="withdraw" type="number" value="70000" min="0" step="500"></label>
+      <label title="Expected average annual portfolio growth while you are still working (7% is a common stock-heavy assumption)">Portfolio Growth % While Working<input id="workReturn" type="number" value="7" step="0.1"></label>
+      <label title="Expected average annual portfolio growth after retirement, when you may hold more bonds/cash (5% is a common moderate assumption)">Portfolio Growth % In Retirement<input id="retReturn" type="number" value="5" step="0.1"></label>
+      <label title="How much prices rise each year — your spending need will be inflated by this rate annually">Annual Expense Inflation %<input id="inflation" type="number" value="2.5" step="0.1"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Who Retires?</p>
+    <p class="note" style="margin-bottom:8px">Checked means that person stops regular employment when the retirement/travel plan begins. Unchecked means their after-tax employment income continues through their final work age.</p>
+    <label class="check"><input type="checkbox" id="youRetire" checked onchange="syncSections()"> Chris retires when the plan begins</label>
+    <div class="grid" id="youWorkGrid">
+      <label title="Chris's current gross annual salary. This salary is also used to project his IPERS pension.">Chris's Annual Salary ($)<input id="youWorkIncome" type="number" value="70000" min="0" step="1000"></label>
+      <label id="chrisFinalWorkField" title="Last age at which Chris receives regular employment income.">Chris's Final Work Age<input id="youWorkEndAge" type="number" value="65" min="30" max="115"></label>
+    </div>
+    <label class="check" style="margin-top:10px"><input type="checkbox" id="partnerRetire" onchange="syncSections()"> Annie retires when the plan begins</label>
+    <div class="grid" id="partnerWorkGrid">
+      <label title="Gross annual employment income if Annie continues working after the plan begins.">Annie's Annual Salary ($)<input id="partnerWorkIncome" type="number" value="105000" min="0" step="1000"></label>
+      <label title="Last age at which Annie receives this regular employment income, measured using Chris's age on the chart.">Annie's Final Work Age<input id="partnerWorkEndAge" type="number" value="67" min="30" max="115"></label>
+      <label title="Percentage withheld from continued regular employment income for federal and state taxes.">Continued Work Tax Rate %<input id="continuedWorkTaxPct" type="number" value="20" min="0" max="60" step="1"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">House + Home Base</p>
+    <label class="check"><input type="checkbox" id="housePaidOff" checked onchange="syncSections()"> House fully paid off by retirement (no mortgage at retirement)</label>
+    <div class="grid" id="housePayGrid">
+      <label title="Annual mortgage payment while house is not yet paid off">Annual Mortgage Payment ($)<input id="housePayment" type="number" value="18000" min="0" step="500"></label>
+      <label title="The age at which your mortgage is fully paid off">House Payoff Age<input id="housePayoffAge" type="number" value="55" min="30" max="90"></label>
+    </div>
+    <div class="grid">
+      <label title="Ongoing annual cost to keep the house (taxes, insurance, maintenance) even when you're on the road">Ongoing House Costs / yr ($)<input id="homeBaseCost" type="number" value="9000" min="0" step="500"></label>
+      <label title="Gross rental income per year if you rent the house while traveling. Set to 0 if you won't rent it.">Rental Income While Traveling / yr ($)<input id="rentIncome" type="number" value="0" min="0" step="500"></label>
+      <label title="What percentage of rental income goes to management fees, maintenance, and vacancies (typically 20-40%)">Rental Expense Rate %<input id="rentCostPct" type="number" value="30" min="0" max="100" step="1"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Travel Life</p>
+    <label class="check"><input type="checkbox" id="travelEnabled" checked onchange="syncSections()"> Include travel lifestyle costs after retirement</label>
+    <div class="grid" id="travelGrid">
+      <label title="How many months per year you plan to be traveling on the road (0–12)">Months Traveling Per Year<input id="travelMonths" type="number" value="6" min="0" max="12" step="1"></label>
+      <label title="Annual campground/RV park fees — prorated to your travel months automatically">Campground Fees / yr ($)<input id="campgrounds" type="number" value="7200" min="0" step="250"></label>
+      <label title="Annual fuel or EV charging costs while traveling">Fuel / Charging / yr ($)<input id="fuel" type="number" value="4200" min="0" step="250"></label>
+      <label title="Mobile internet (hotspots, Starlink, etc.) per year">Internet / yr ($)<input id="internet" type="number" value="1800" min="0" step="100"></label>
+      <label title="Laundromats, paid showers, dump fees, state park passes, etc.">Road Fees & Misc / yr ($)<input id="roadFees" type="number" value="1200" min="0" step="100"></label>
+      <label title="Entertainment, national parks, activities, dining out">Fun & Attractions / yr ($)<input id="fun" type="number" value="3600" min="0" step="250"></label>
+      <label title="Flights, hotels, or detours to visit family or kids at college">Family & College Visits / yr ($)<input id="kidVisits" type="number" value="3000" min="0" step="250"></label>
+      <label title="How fast travel costs (fuel, campgrounds) inflate annually — often higher than general inflation">Travel Cost Inflation %<input id="travelInflation" type="number" value="3" step="0.1"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Camper / Van Purchase</p>
+    <label class="check"><input type="checkbox" id="rigEnabled" checked onchange="syncSections()"> Include camper or van purchase costs</label>
+    <div class="grid" id="rigGrid">
+      <label title="Purchase price of your first camper, van, or RV">First Vehicle Purchase Price ($)<input id="rigCost" type="number" value="90000" min="0" step="1000"></label>
+      <label title="Chris's age when the first rig is purchased">Chris's Age at First Purchase<input id="rigAge" type="number" value="55" min="18" max="100"></label>
+      <label title="One-time build-out, conversion, or upgrade costs on top of purchase price">Build-Out / Upgrades ($)<input id="buildCost" type="number" value="10000" min="0" step="1000"></label>
+      <label title="Annual repairs, maintenance, and insurance for the vehicle">Annual Maintenance ($)<input id="rigMaint" type="number" value="3500" min="0" step="250"></label>
+      <label title="Cost to buy a replacement vehicle later in retirement">Replacement Vehicle Cost ($)<input id="rigReplaceCost" type="number" value="70000" min="0" step="1000"></label>
+      <label title="Chris's age when the replacement vehicle is purchased">Chris's Age at Replacement Purchase<input id="rigReplaceAge" type="number" value="68" min="18" max="110"></label>
+      <label title="What you expect to sell the first vehicle for when you upgrade">Sell Old Vehicle For ($)<input id="rigSaleValue" type="number" value="30000" min="0" step="1000"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Guaranteed Income</p>
+    <div class="grid">
+      <label title="Chris's estimated annual Social Security benefit. Check ssa.gov for his personalized estimate.">Chris Social Security / yr ($)<input id="ssAmount" type="number" value="24000" min="0" step="1000"></label>
+      <label title="Chris's age when Social Security begins (62–70; later = bigger monthly check)">Chris Social Security Start Age<input id="ssStartAge" type="number" value="67" min="50" max="80"></label>
+      <label title="Assumed annual growth in Chris's IPERS-covered salary.">Chris's Annual IPERS Salary Growth %<input id="ipersSalaryGrowth" type="number" value="3" min="0" max="15" step="0.1"></label>
+      <label title="IPERS service earned before the current year. Leave at 0 if your covered employment starts this year.">Prior IPERS Service Years<input id="ipersPriorYears" type="number" value="0" min="0" max="35" step="0.25"></label>
+      <label title="Chris's age when IPERS pension payments begin">Chris's IPERS Pension Start Age<input id="ipersStartAge" type="number" value="65" min="55" max="80"></label>
+    </div>
+    <p class="note source-links">Chris's IPERS estimate uses the annual salary entered under Who Retires. The model projects service and salary growth through Chris's final work age, uses the highest five projected salary years, vests after 7 years, and applies the regular-member multiplier and early-retirement reduction. Verify the estimate in Chris's IPERS My Account. Sources: <a href="https://ipers.org/life-events/mid-career/vested-members" target="_blank" rel="noreferrer">vesting</a>, <a href="https://ipers.org/life-events/new-membership/retirement-benefit-calculation/regular-members-retirement-benefit-calculation" target="_blank" rel="noreferrer">benefit formula</a>, <a href="https://ipers.org/life-events/retiring-members" target="_blank" rel="noreferrer">retirement rules</a>, <a href="https://ipers.org/about/contribution-rates" target="_blank" rel="noreferrer">contribution rates</a>.</p>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Remote / Part-Time Work</p>
+    <label class="check"><input type="checkbox" id="suppWorkEnabled" checked onchange="syncSections()"> Include remote or part-time income after retirement</label>
+    <div class="grid" id="suppWorkGrid">
+      <label title="Gross annual income from remote work, consulting, or part-time gigs">Annual Income from Work ($)<input id="suppWorkIncome" type="number" value="50000" min="0" step="1000"></label>
+      <label title="Age you plan to start this part-time or remote work">Work Starts at Age<input id="suppWorkStartAge" type="number" value="55" min="30" max="115"></label>
+      <label title="Age you plan to fully stop working">Work Ends at Age<input id="suppWorkEndAge" type="number" value="70" min="40" max="115"></label>
+      <label title="Percentage of work income set aside for federal and state income taxes">Income Tax Rate %<input id="workTaxPct" type="number" value="20" min="0" max="60" step="1"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">Campground Work / Workamping</p>
+    <label class="check"><input type="checkbox" id="campWorkEnabled" checked onchange="syncSections()"> Include campground work after the plan begins</label>
+    <div class="grid" id="campWorkGrid">
+      <label title="Gross annual cash wages earned by either or both of you working at campgrounds.">Campground Cash Income / yr ($)<input id="campWorkIncome" type="number" value="12000" min="0" step="500"></label>
+      <label title="Annual value of a free or discounted campsite supplied by the campground. This reduces campground fees, but is not added as cash income.">Free Campsite Value / yr ($)<input id="campSiteValue" type="number" value="6000" min="0" step="500"></label>
+      <label title="Chris's age when campground work begins.">Campground Work Starts at Chris's Age<input id="campWorkStartAge" type="number" value="55" min="30" max="115"></label>
+      <label title="Chris's age when campground work ends.">Campground Work Ends at Chris's Age<input id="campWorkEndAge" type="number" value="70" min="30" max="115"></label>
+      <label title="Percentage withheld from campground cash wages for taxes.">Campground Work Tax Rate %<input id="campWorkTaxPct" type="number" value="15" min="0" max="60" step="1"></label>
+    </div>
+  </div>
+
+  <div class="section">
+    <p class="section-title">One-Time Windfalls</p>
+    <p class="note" style="margin-bottom:8px">Inheritance, house sale, bonus, etc. — lump sums added to your portfolio at a specific age. Set amount to 0 to disable.</p>
+    <div class="grid">
+      <label title="Lump sum added to portfolio (inheritance, home sale, etc.)">Windfall 1 Amount ($)<input id="windAmount1" type="number" value="100000" min="0" step="1000"></label>
+      <label title="Chris's age when this windfall lands">Windfall 1 — At Chris's Age<input id="windAge1" type="number" value="44" min="18" max="115"></label>
+      <label>Windfall 2 Amount ($)<input id="windAmount2" type="number" value="100000" min="0" step="1000"></label>
+      <label>Windfall 2 — At Chris's Age<input id="windAge2" type="number" value="60" min="18" max="115"></label>
+      <label>Windfall 3 Amount ($)<input id="windAmount3" type="number" value="100000" min="0" step="1000"></label>
+      <label>Windfall 3 — At Chris's Age<input id="windAge3" type="number" value="65" min="18" max="115"></label>
+    </div>
+  </div>
+
+  <div class="actions">
+    <span class="pill" id="saveStatus">Changes save automatically</span>
+    <button class="ghost" type="button" onclick="setAllSections(false)">Open All Sections</button>
+    <button class="ghost" type="button" onclick="setAllSections(true)">Collapse All Sections</button>
+    <button class="ghost" type="button" onclick="resetInputs()">Reset to Defaults</button>
+  </div>
+
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+    <canvas id="chart-overlay"></canvas>
+    <div class="chart-tip" id="chart-tip"></div>
+  </div>
+
+  <div class="legend">
+    <span><i class="sw r"></i>Risky (entered returns)</span>
+    <span><i class="sw s"></i>Safe (returns −2%)</span>
+    <span><i class="sw m"></i>Sustainable Spend (max safe spend that doesn't run out)</span>
+    <span><i class="sw b"></i>Retirement start</span>
+    <span><i class="sw p"></i>Plan end age</span>
+    <span><i class="sw x"></i>Portfolio depletes</span>
+    <span><i class="sw t"></i>Travel years</span>
+  </div>
+
+  <div id="facts" class="facts"></div>
+  <div id="details"></div>
+</div>
+
+<script>
+const ids = [
+"age","retireAge","endAge","balance","contri","withdraw","workReturn","retReturn","inflation",
+"youWorkIncome","youWorkEndAge","partnerWorkIncome","partnerWorkEndAge","continuedWorkTaxPct",
+"housePayment","housePayoffAge","homeBaseCost","rentIncome","rentCostPct",
+"travelMonths","campgrounds","fuel","internet","roadFees","fun","kidVisits","travelInflation",
+"rigCost","rigAge","buildCost","rigMaint","rigReplaceCost","rigReplaceAge","rigSaleValue",
+"ssAmount","ssStartAge","ipersSalaryGrowth","ipersPriorYears","ipersStartAge",
+"suppWorkIncome","suppWorkStartAge","suppWorkEndAge","workTaxPct",
+"campWorkIncome","campSiteValue","campWorkStartAge","campWorkEndAge","campWorkTaxPct",
+"windAmount1","windAge1","windAmount2","windAge2","windAmount3","windAge3"
+];
+const checks = ["youRetire","partnerRetire","housePaidOff","travelEnabled","rigEnabled","suppWorkEnabled","campWorkEnabled"];
+const defaults = {};
+let _lastDraw = null;
+
+function money(n){return "$"+Math.round(n||0).toLocaleString();}
+function pct(n){return (n*100).toFixed(1)+"%";}
+function clamp(n,min,max){return Math.min(Math.max(n,min),max);}
+function getNum(id){return +document.getElementById(id).value || 0;}
+function getCheck(id){return document.getElementById(id).checked;}
+function setVal(id,v){document.getElementById(id).value=v;}
+function setCheck(id,v){document.getElementById(id).checked=!!v;}
+function getTheme(){return document.body.classList.contains("dark-theme")?"dark":"light";}
+function applyTheme(theme){document.body.classList.toggle("dark-theme",theme==="dark");document.getElementById("themeLabel").textContent=theme==="dark"?"Light":"Dark";}
+function toggleTheme(){const t=getTheme()==="dark"?"light":"dark";localStorage.setItem("dreamTheme",t);applyTheme(t);runCalc();}
+function initTheme(){applyTheme(localStorage.getItem("dreamTheme") || (matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"));}
+
+function captureInputs(){
+  const o={};
+  ids.forEach(id=>o[id]=document.getElementById(id).value);
+  checks.forEach(id=>o[id]=document.getElementById(id).checked);
+  return o;
+}
+function applyInputs(o){
+  ids.forEach(id=>{ if(o[id]!==undefined) document.getElementById(id).value=o[id]; });
+  checks.forEach(id=>{ if(o[id]!==undefined) document.getElementById(id).checked=o[id]; });
+}
+function saveInputs(showMessage=false){
+  localStorage.setItem("dreamInputs",JSON.stringify(captureInputs()));
+  const status=document.getElementById("saveStatus");
+  if(status){
+    status.textContent="Saved locally";
+    clearTimeout(saveInputs._timer);
+    saveInputs._timer=setTimeout(()=>status.textContent="Changes save automatically",1400);
+  }
+  if(showMessage) alert("Saved your inputs on this browser.");
+}
+function loadInputs(showMessage=false){
+  const raw=localStorage.getItem("dreamInputs");
+  if(!raw){if(showMessage) alert("No saved inputs found.");return false;}
+  try{
+    const saved=JSON.parse(raw);
+    const salaryDefaultsVersion=localStorage.getItem("dreamSalaryDefaultsVersion");
+    if(salaryDefaultsVersion!=="2"){
+      if(String(saved.youWorkIncome)==="75000") saved.youWorkIncome="70000";
+      if(String(saved.partnerWorkIncome)==="50000") saved.partnerWorkIncome="105000";
+      localStorage.setItem("dreamSalaryDefaultsVersion","2");
+      localStorage.setItem("dreamInputs",JSON.stringify(saved));
+    }
+    if(localStorage.getItem("dreamSavingsDefaultsVersion")!=="2"){
+      if(String(saved.contri)==="31000") saved.contri="24000";
+      localStorage.setItem("dreamSavingsDefaultsVersion","2");
+      localStorage.setItem("dreamInputs",JSON.stringify(saved));
+    }
+    applyInputs(saved);
+    return true;
+  }catch(e){if(showMessage) alert("Saved inputs could not be loaded.");return false;}
+}
+function resetInputs(){
+  applyInputs(defaults);
+  document.getElementById("preset").value="custom";
+  saveInputs();
+  syncSections();
+  runCalc();
+}
+
+function sectionStorageKey(section,index){
+  const title=section.querySelector(".section-title")?.textContent.trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+  return title || `section-${index}`;
+}
+function saveSectionStates(){
+  const state={};
+  document.querySelectorAll(".collapsible-section").forEach((section,index)=>state[sectionStorageKey(section,index)]=!section.classList.contains("collapsed"));
+  localStorage.setItem("dreamSectionStates",JSON.stringify(state));
+}
+function setSectionCollapsed(section,collapsed){
+  section.classList.toggle("collapsed",collapsed);
+  const title=section.querySelector(":scope > .section-title");
+  if(title) title.setAttribute("aria-expanded",String(!collapsed));
+}
+function decorateCollapsibleSection(section,index=0){
+  if(!section || section.classList.contains("collapsible-section")) return;
+  const title=section.querySelector(":scope > .section-title");
+  if(!title) return;
+  let saved={};
+  try{saved=JSON.parse(localStorage.getItem("dreamSectionStates")||"{}");}catch(e){}
+  section.classList.add("collapsible-section");
+  const key=sectionStorageKey(section,index);
+  setSectionCollapsed(section,saved[key]!==true);
+  title.setAttribute("role","button");
+  title.setAttribute("tabindex","0");
+  title.addEventListener("click",()=>{setSectionCollapsed(section,!section.classList.contains("collapsed"));saveSectionStates();});
+  title.addEventListener("keydown",event=>{
+    if(event.key==="Enter"||event.key===" "){event.preventDefault();title.click();}
+  });
+}
+function initCollapsibleSections(){
+  document.querySelectorAll(".app > .section").forEach((section,index)=>decorateCollapsibleSection(section,index));
+}
+function setAllSections(collapsed){
+  document.querySelectorAll(".collapsible-section").forEach(section=>setSectionCollapsed(section,collapsed));
+  saveSectionStates();
+}
+
+function applyPreset(){
+  const p=document.getElementById("preset").value;
+  if(p==="iowaBase"){
+    applyInputs({...captureInputs(), travelMonths:6, campgrounds:7200, fuel:4200, internet:1800, roadFees:1200, fun:3600, kidVisits:3000, rigCost:90000, buildCost:10000, rigMaint:3500, rentIncome:0, homeBaseCost:9000});
+    setCheck("housePaidOff",true); setCheck("travelEnabled",true); setCheck("rigEnabled",true);
+  }
+  if(p==="fullVan"){
+    applyInputs({...captureInputs(), travelMonths:12, campgrounds:12000, fuel:6000, internet:2400, roadFees:1800, fun:4800, kidVisits:4000, rigCost:105000, buildCost:12000, rigMaint:4500, homeBaseCost:6000});
+    setCheck("travelEnabled",true); setCheck("rigEnabled",true);
+  }
+  if(p==="earlySimple"){
+    applyInputs({...captureInputs(), retireAge:52, withdraw:60000, travelMonths:5, campgrounds:5000, fuel:3500, fun:2400, kidVisits:2500, rigCost:70000, buildCost:8000, suppWorkIncome:25000, suppWorkEndAge:62});
+    setCheck("travelEnabled",true); setCheck("rigEnabled",true); setCheck("suppWorkEnabled",true);
+  }
+  if(p==="annWorks"){
+    applyInputs({...captureInputs(), suppWorkIncome:50000, suppWorkStartAge:55, suppWorkEndAge:67, workTaxPct:20, travelMonths:9, campgrounds:9000, fuel:5200, internet:2400, kidVisits:3500});
+    setCheck("suppWorkEnabled",true); setCheck("travelEnabled",true);
+  }
+  if(p==="expensiveRig"){
+    applyInputs({...captureInputs(), rigCost:185000, buildCost:20000, rigMaint:9000, rigReplaceCost:130000, rigSaleValue:50000, campgrounds:18000, fuel:8000, fun:7000, travelMonths:12});
+    setCheck("travelEnabled",true); setCheck("rigEnabled",true);
+  }
+  saveInputs();
+  syncSections();
+  runCalc();
+}
+
+function ipersMultiplier(years){
+  const y=clamp(years,0,35);
+  return Math.min(Math.min(y,30)*0.02 + Math.max(Math.min(y-30,5),0)*0.01, 0.65);
+}
+function qualifiesNormalRetirement(age, years){return age>=65 || (age>=62 && years>=20) || (age>=55 && age+years>=88);}
+function projectIpersAverageSalary(currentSalary, newServiceYears, annualGrowth){
+  if(currentSalary<=0 || newServiceYears<=0) return 0;
+  const salaries=[];
+  const wholeYears=Math.max(Math.ceil(newServiceYears),1);
+  for(let year=0;year<wholeYears;year++) salaries.push(currentSalary*Math.pow(1+annualGrowth,year));
+  const highest=salaries.sort((a,b)=>b-a).slice(0,Math.min(5,salaries.length));
+  return highest.reduce((sum,salary)=>sum+salary,0)/highest.length;
+}
+function calculateIpersAnnualBenefit(avgSalary, years, startAge){
+  if(avgSalary<=0 || years<7) return {annual:0, multiplier:ipersMultiplier(years), reduction:0, normal:false, vested:false};
+  const mult=ipersMultiplier(years);
+  const gross=avgSalary*mult;
+  const normal=qualifiesNormalRetirement(startAge,years);
+  const yearsEarly=normal?0:Math.max(65-startAge,0);
+  const reduction=clamp(yearsEarly*0.06,0,1);
+  return {annual:gross*(1-reduction), multiplier:mult, reduction, normal, vested:true};
+}
+function collectWindfalls(){
+  const rows=[];
+  for(let i=1;i<=3;i++){
+    const amount=getNum(`windAmount${i}`), age=getNum(`windAge${i}`);
+    if(amount>0 && age>0) rows.push({amount,age});
+  }
+  return rows;
+}
+function expenseAt(firstYearAmount, startAge, age, infl){
+  if(age < startAge) return 0;
+  return firstYearAmount * Math.pow(1+infl, age-startAge);
+}
+
+function buildBase(){
+  const startAge=getNum("age"), retireAge=getNum("retireAge"), endAge=getNum("endAge");
+  const youRetire=getCheck("youRetire");
+  const youWorkEndAge=getNum("youWorkEndAge");
+  const ipersEmploymentEndAge=youRetire?retireAge:Math.max(retireAge,youWorkEndAge);
+  const ipersCurrentSalary=getNum("youWorkIncome");
+  const ipersSalaryGrowth=getNum("ipersSalaryGrowth")/100;
+  const ipersPriorYears=getNum("ipersPriorYears");
+  const newIpersYears=Math.max(ipersEmploymentEndAge-startAge,0);
+  const ipersYears=Math.min(ipersPriorYears+newIpersYears,35);
+  const ipersAvgSalary=projectIpersAverageSalary(ipersCurrentSalary,newIpersYears,ipersSalaryGrowth);
+  const requestedIpersStartAge=getNum("ipersStartAge");
+  const effectiveIpersStartAge=Math.max(requestedIpersStartAge,ipersEmploymentEndAge);
+  const ipers=calculateIpersAnnualBenefit(ipersAvgSalary,ipersYears,effectiveIpersStartAge);
+  const ipersAtRetirement=calculateIpersAnnualBenefit(ipersAvgSalary,ipersYears,Math.max(ipersEmploymentEndAge,55));
+  return {
+    startAge, retireAge, endAge,
+    startingBalance:getNum("balance"), contrib:getNum("contri"), withdraw:getNum("withdraw"),
+    workR:getNum("workReturn")/100, retR:getNum("retReturn")/100, inflation:getNum("inflation")/100,
+    ssAmount:getNum("ssAmount"), ssStartAge:getNum("ssStartAge"),
+    ipersAnnual:ipers.annual, ipersStartAge:effectiveIpersStartAge, ipersInfo:{...ipers,atRetirement:ipersAtRetirement,avgSalary:ipersAvgSalary,years:ipersYears,currentSalary:ipersCurrentSalary,memberContribution:ipersCurrentSalary*0.0629,vestAge:startAge+Math.max(7-ipersPriorYears,0),employmentEndAge:ipersEmploymentEndAge,requestedStartAge:requestedIpersStartAge},
+    youRetire, youWorkIncome:getNum("youWorkIncome"), youWorkEndAge,
+    partnerRetire:getCheck("partnerRetire"), partnerWorkIncome:getNum("partnerWorkIncome"), partnerWorkEndAge:getNum("partnerWorkEndAge"), continuedWorkTaxPct:getNum("continuedWorkTaxPct")/100,
+    suppEnabled:getCheck("suppWorkEnabled"), suppIncome:getNum("suppWorkIncome"), suppStartAge:getNum("suppWorkStartAge"), suppEndAge:getNum("suppWorkEndAge"), workTaxPct:getNum("workTaxPct")/100,
+    campWorkEnabled:getCheck("campWorkEnabled"), campWorkIncome:getNum("campWorkIncome"), campSiteValue:getNum("campSiteValue"), campWorkStartAge:getNum("campWorkStartAge"), campWorkEndAge:getNum("campWorkEndAge"), campWorkTaxPct:getNum("campWorkTaxPct")/100,
+    windfalls:collectWindfalls(),
+    housePaidOff:getCheck("housePaidOff"), housePayment:getNum("housePayment"), housePayoffAge:getNum("housePayoffAge"), homeBaseCost:getNum("homeBaseCost"), rentIncome:getNum("rentIncome"), rentCostPct:getNum("rentCostPct")/100,
+    travelEnabled:getCheck("travelEnabled"), travelMonths:getNum("travelMonths"), campgrounds:getNum("campgrounds"), fuel:getNum("fuel"), internet:getNum("internet"), roadFees:getNum("roadFees"), fun:getNum("fun"), kidVisits:getNum("kidVisits"), travelInflation:getNum("travelInflation")/100,
+    rigEnabled:getCheck("rigEnabled"), rigCost:getNum("rigCost"), rigAge:getNum("rigAge"), buildCost:getNum("buildCost"), rigMaint:getNum("rigMaint"), rigReplaceCost:getNum("rigReplaceCost"), rigReplaceAge:getNum("rigReplaceAge"), rigSaleValue:getNum("rigSaleValue")
+  };
+}
+
+function simulate(p){
+  const years=[], values=[], rows=[];
+  let balance=p.startingBalance, depletionAge=null;
+  let totalDraws=0, totalTravel=0, totalRig=0, totalIncome=0, totalSurplus=0;
+  for(let age=p.startAge; age<=p.endAge; age++){
+    const start=balance;
+    const working=age<p.retireAge;
+    const retired=age>=p.retireAge;
+    const rate=working?p.workR:p.retR;
+    const contribution=working?p.contrib:0;
+    const windfall=p.windfalls.filter(w=>w.age===age).reduce((sum,w)=>sum+w.amount,0);
+
+    const baseNeed = retired ? expenseAt(p.withdraw, p.retireAge, age, p.inflation) : 0;
+    const housePay = (!p.housePaidOff && age < p.housePayoffAge) ? p.housePayment : 0;
+    const homeBase = retired ? expenseAt(p.homeBaseCost, p.retireAge, age, p.inflation) : 0;
+    const rentNet = retired ? p.rentIncome * (1-p.rentCostPct) : 0;
+
+    let travel = 0;
+    let campSiteCredit = 0;
+    if(retired && p.travelEnabled){
+      const campWorking=p.campWorkEnabled && age>=p.campWorkStartAge && age<=p.campWorkEndAge;
+      campSiteCredit=campWorking?Math.min(p.campSiteValue,p.campgrounds):0;
+      const travelBase = Math.max(p.campgrounds-campSiteCredit,0)+p.fuel+p.internet+p.roadFees+p.fun+p.kidVisits;
+      travel = expenseAt(travelBase, p.retireAge, age, p.travelInflation) * (p.travelMonths/12);
+    }
+
+    let rig = 0;
+    if(p.rigEnabled){
+      if(age===p.rigAge) rig += p.rigCost + p.buildCost;
+      if(age===p.rigReplaceAge) rig += Math.max(p.rigReplaceCost - p.rigSaleValue,0);
+      if(retired && age>=p.rigAge) rig += expenseAt(p.rigMaint, p.retireAge, age, p.travelInflation);
+    }
+
+    const ss=(retired && age>=p.ssStartAge)?p.ssAmount:0;
+    const ipers=(retired && age>=p.ipersStartAge)?p.ipersAnnual:0;
+    const grossSupp=(retired && p.suppEnabled && age>=p.suppStartAge && age<=p.suppEndAge)?p.suppIncome:0;
+    const supplement=grossSupp*(1-p.workTaxPct);
+    const yourContinuedGross=(retired && !p.youRetire && age<=p.youWorkEndAge)?p.youWorkIncome:0;
+    const partnerContinuedGross=(retired && !p.partnerRetire && age<=p.partnerWorkEndAge)?p.partnerWorkIncome:0;
+    const continuedWork=(yourContinuedGross+partnerContinuedGross)*(1-p.continuedWorkTaxPct);
+    const grossCampWork=(retired && p.campWorkEnabled && age>=p.campWorkStartAge && age<=p.campWorkEndAge)?p.campWorkIncome:0;
+    const campWork=grossCampWork*(1-p.campWorkTaxPct);
+    const incomeOffset=ss+ipers+supplement+continuedWork+campWork+rentNet;
+
+    const grossNeed=baseNeed + housePay + homeBase + travel + rig;
+    const portfolioDraw=retired?Math.max(grossNeed-incomeOffset,0):0;
+    const incomeSurplus=retired?Math.max(incomeOffset-grossNeed,0):0;
+    const growth=Math.max(start,0)*rate;
+    balance=Math.max(0,start+growth+contribution+windfall+incomeSurplus-portfolioDraw);
+
+    if(depletionAge===null && balance<=0 && retired) depletionAge=age;
+    totalDraws += portfolioDraw; totalTravel += travel; totalRig += rig; totalIncome += incomeOffset; totalSurplus += incomeSurplus;
+    years.push(age); values.push(balance);
+    rows.push({age,start,growth,contribution,windfall,baseNeed,housePay,homeBase,travel,campSiteCredit,rig,ss,ipers,supplement,continuedWork,campWork,rentNet,incomeSurplus,portfolioDraw,end:balance});
+  }
+  return {years,values,rows,depletionAge,finalBalance:values[values.length-1]||0,totalDraws,totalTravel,totalRig,totalIncome,totalSurplus};
+}
+
+function findMiddle(base, safeWorkR, safeRetR){
+  let lo=0, hi=Math.max(base.withdraw*2, 50000), best=0, bestScenario=null;
+  for(let i=0;i<45;i++){
+    const mid=(lo+hi)/2;
+    const s=simulate({...base, withdraw:mid, workR:safeWorkR, retR:safeRetR});
+    if(s.depletionAge===null){best=mid;bestScenario=s;lo=mid;} else {hi=mid;}
+  }
+  return {withdraw:best, scenario:bestScenario || simulate({...base, withdraw:0, workR:safeWorkR, retR:safeRetR})};
+}
+
+function runCalc(){
+  const base=buildBase();
+  if(base.endAge<=base.startAge){alert("End age must be greater than current age.");return;}
+  const safeWorkR=Math.max(base.workR-0.02,0), safeRetR=Math.max(base.retR-0.02,0);
+  const risk=simulate(base);
+  const safe=simulate({...base,workR:safeWorkR,retR:safeRetR});
+  const mid=findMiddle(base,safeWorkR,safeRetR);
+  drawChart(risk,safe,mid.scenario,base);
+  renderFacts({risk,safe,middle:mid.scenario,base,middleWithdraw:mid.withdraw,safeWorkR,safeRetR});
+}
+
+function drawChart(risk,safe,middle,base){
+  const c=document.getElementById("chart"), ctx=c.getContext("2d");
+  const W=c.clientWidth||900,H=c.clientHeight||410,dpr=devicePixelRatio||1;c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,W,H);
+  const pad={l:66,r:18,t:18,b:32}, w=W-pad.l-pad.r, h=H-pad.t-pad.b;
+  const vals=[...risk.values,...safe.values,...middle.values], max=Math.max(...vals,1), range=nice(max);
+  const dark=getTheme()==="dark", axis=dark?"#4b5563":"#cbd5e1", text=dark?"#e5e7eb":"#475569", zone=dark?"rgba(20,184,166,.14)":"rgba(20,184,166,.13)";
+  const x=a=>pad.l+((a-base.startAge)/(base.endAge-base.startAge))*w, y=v=>pad.t+(1-v/range)*h;
+
+  if(base.travelEnabled){
+    ctx.fillStyle=zone;ctx.fillRect(x(base.retireAge),pad.t,x(base.endAge)-x(base.retireAge),h);
+  }
+  ctx.strokeStyle=axis;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(pad.l,pad.t);ctx.lineTo(pad.l,pad.t+h);ctx.lineTo(pad.l+w,pad.t+h);ctx.stroke();
+  for(let i=0;i<=4;i++){
+    const val=range*i/4, yy=y(val);
+    ctx.strokeStyle=axis;ctx.globalAlpha=.35;ctx.beginPath();ctx.moveTo(pad.l,yy);ctx.lineTo(pad.l+w,yy);ctx.stroke();ctx.globalAlpha=1;
+    ctx.fillStyle=text;ctx.font="11px system-ui";ctx.textAlign="right";ctx.textBaseline="middle";ctx.fillText(money(val),pad.l-8,yy);
+  }
+  ctx.textAlign="center";ctx.textBaseline="top";ctx.fillText(base.startAge,x(base.startAge),pad.t+h+8);ctx.fillText("Ret "+base.retireAge,x(base.retireAge),pad.t+h+8);ctx.fillText("End "+base.endAge,x(base.endAge),pad.t+h+8);
+  ctx.strokeStyle="#2563eb";ctx.beginPath();ctx.moveTo(x(base.retireAge),pad.t);ctx.lineTo(x(base.retireAge),pad.t+h);ctx.stroke();
+  ctx.strokeStyle="#db2777";ctx.beginPath();ctx.moveTo(x(base.endAge),pad.t);ctx.lineTo(x(base.endAge),pad.t+h);ctx.stroke();
+
+  // Gradient fills under each line (drawn before stroked lines so lines render on top)
+  function gradFill(s,r,g,b){
+    const grad=ctx.createLinearGradient(0,pad.t,0,pad.t+h);
+    grad.addColorStop(0,`rgba(${r},${g},${b},0.18)`);
+    grad.addColorStop(1,`rgba(${r},${g},${b},0)`);
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    s.values.forEach((v,i)=>{const xx=x(s.years[i]),yy=y(v);i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});
+    ctx.lineTo(x(s.years[s.years.length-1]),pad.t+h);
+    ctx.lineTo(x(s.years[0]),pad.t+h);
+    ctx.closePath();ctx.fill();
+  }
+  ctx.save();ctx.beginPath();ctx.rect(pad.l,pad.t,w,h);ctx.clip();
+  gradFill(middle,124,58,237);gradFill(safe,217,119,6);gradFill(risk,22,163,74);
+  ctx.restore();
+
+  function line(s,color){ctx.strokeStyle=color;ctx.lineWidth=2.5;ctx.beginPath();s.values.forEach((v,i)=>{const xx=x(s.years[i]), yy=y(v); i?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy)});ctx.stroke();}
+  line(risk,"#16a34a");line(safe,"#d97706");line(middle,"#7c3aed");
+
+  function mark(s,color,label){if(s.depletionAge==null)return;const i=s.years.indexOf(s.depletionAge);if(i<0)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(x(s.years[i]),y(s.values[i]),4,0,Math.PI*2);ctx.fill();ctx.font="10px system-ui";ctx.textAlign="left";ctx.textBaseline="bottom";ctx.fillText(label+" depletes "+s.depletionAge,x(s.years[i])+6,y(s.values[i])-4)}
+  mark(risk,"#16a34a","Risky");mark(safe,"#d97706","Safe");mark(middle,"#7c3aed","Middle");
+  _lastDraw={risk,safe,middle,base,range};
+}
+function nice(v){const e=Math.floor(Math.log10(v));const f=v/Math.pow(10,e);return (f<=1?1:f<=2?2:f<=5?5:10)*Math.pow(10,e)}
+function depText(s){return s.depletionAge?`Depletes age ${s.depletionAge}`:`No depletion`}
+
+function renderFacts(d){
+  const ip=d.base.ipersInfo;
+  const safeRetireRow=d.safe.rows.find(r=>r.age===d.base.retireAge);
+  const currentTravel = d.base.travelEnabled ? (d.base.campgrounds+d.base.fuel+d.base.internet+d.base.roadFees+d.base.fun+d.base.kidVisits)*(d.base.travelMonths/12) : 0;
+  const rigHit = d.base.rigEnabled ? d.base.rigCost + d.base.buildCost : 0;
+  const continuedWorkNet=(!d.base.youRetire?d.base.youWorkIncome:0)+(!d.base.partnerRetire?d.base.partnerWorkIncome:0);
+  const campWorkNet=d.base.campWorkEnabled?d.base.campWorkIncome*(1-d.base.campWorkTaxPct):0;
+  const retireStatus=`Chris: ${d.base.youRetire?"retire":"work to "+d.base.youWorkEndAge} · Annie: ${d.base.partnerRetire?"retire":"work to "+d.base.partnerWorkEndAge}`;
+  const facts=[
+    ["Safe at Retirement",money(safeRetireRow?safeRetireRow.end:0),"Age "+d.base.retireAge],
+    ["Safe Final",money(d.safe.finalBalance),depText(d.safe),d.safe.depletionAge?"warn":"hero"],
+    ["Risky Final",money(d.risk.finalBalance),depText(d.risk)],
+    ["Max Sustainable Spend",money(d.middleWithdraw)+" / yr","Highest spend that doesn't run out (safe returns)","hero-purple"],
+    ["Road Life Cost",money(currentTravel)+" / yr",`${d.base.travelMonths} months per year`],
+    ["First Rig Hit",money(rigHit),d.base.rigEnabled?`Age ${d.base.rigAge}`:"Off"],
+    ["Who Retires",d.base.youRetire&&d.base.partnerRetire?"Both":"Staggered",retireStatus],
+    ["Continued Job Income",money(continuedWorkNet*(1-d.base.continuedWorkTaxPct))+" / yr","After estimated tax while regular work continues"],
+    ["Remote Work Net",money(d.base.suppIncome*(1-d.base.workTaxPct))+" / yr",d.base.suppEnabled?`Age ${d.base.suppStartAge}-${d.base.suppEndAge}`:"Off"],
+    ["Campground Work",money(campWorkNet)+" / yr",d.base.campWorkEnabled?`Plus campsite credit up to ${money(d.base.campSiteValue)} · age ${d.base.campWorkStartAge}-${d.base.campWorkEndAge}`:"Off"],
+    ["Social Security",money(d.base.ssAmount)+" / yr","Starts age "+d.base.ssStartAge],
+    ["IPERS at Selected Age",money(d.base.ipersAnnual)+" / yr", ip.vested?`Starts ${d.base.ipersStartAge} · ${ip.years.toFixed(1)} yrs service · ${Math.round(ip.reduction*100)}% reduction`:"Not vested / off"],
+    ["IPERS if Started When Work Ends",money(ip.atRetirement.annual)+" / yr",ip.atRetirement.vested?`Age ${ip.employmentEndAge} · ${Math.round(ip.atRetirement.reduction*100)}% reduction`:"Not vested"],
+    ["IPERS Salary Projection",money(ip.avgSalary),`Highest 5-year avg · vest near age ${Math.ceil(ip.vestAge)}`],
+    ["Current IPERS Contribution",money(ip.memberContribution)+" / yr","6.29% employee share; employer currently contributes 9.44%"],
+    ["Total Safe Draws",money(d.safe.totalDraws),`Travel ${money(d.safe.totalTravel)} · Rig ${money(d.safe.totalRig)}`],
+    ["Income Saved to Portfolio",money(d.safe.totalSurplus),"Safe scenario income above annual modeled costs"]
+  ];
+  document.getElementById("facts").innerHTML=facts.map(f=>{
+    const t=f[3]||"";
+    let cls="fact",style="";
+    if(t==="hero"){cls+=" fact-hero";}
+    else if(t==="hero-purple"){cls+=" fact-hero";style=' style="--hero:var(--purple)"';}
+    else if(t==="warn"){cls+=" fact-warn";}
+    return `<div class="${cls}"${style}><div class="k">${f[0]}</div><div class="v">${f[1]}</div><div class="s">${f[2]}</div></div>`;
+  }).join("");
+
+  const checkpoints=[d.base.startAge,d.base.retireAge,d.base.rigAge,d.base.rigReplaceAge,d.base.ssStartAge,d.base.ipersStartAge,d.base.endAge]
+    .filter((v,i,a)=>v>=d.base.startAge&&v<=d.base.endAge&&a.indexOf(v)===i).sort((a,b)=>a-b);
+  const rows=checkpoints.map(age=>{
+    const rr=d.risk.rows.find(r=>r.age===age), sr=d.safe.rows.find(r=>r.age===age), mr=d.middle.rows.find(r=>r.age===age);
+    return `<tr><td>${age}</td><td>${money(rr?.end)}</td><td>${money(sr?.end)}</td><td>${money(mr?.end)}</td><td>${money(sr?.portfolioDraw)}</td><td>${money(sr?.incomeSurplus)}</td><td>${money(sr?.travel)}</td><td>${money(sr?.rig)}</td><td>${money(sr?.supplement+sr?.continuedWork+sr?.campWork+sr?.ss+sr?.ipers+sr?.rentNet)}</td></tr>`;
+  }).join("");
+
+  const warnings=[];
+  if(d.safe.depletionAge) warnings.push(`<span class="warning">Safe scenario depletes at age ${d.safe.depletionAge}.</span>`);
+  if(!ip.vested && ip.currentSalary>0) warnings.push(`<span class="warning">The projected IPERS service does not reach the 7-year vesting requirement.</span>`);
+  if(ip.requestedStartAge<ip.employmentEndAge) warnings.push(`IPERS start was moved from age ${ip.requestedStartAge} to ${ip.employmentEndAge} because your covered state employment continues through that age.`);
+  if(ip.vested && ip.reduction>0) warnings.push(`Starting IPERS at age ${d.base.ipersStartAge} applies an estimated ${Math.round(ip.reduction*100)}% permanent early-retirement reduction.`);
+  if(d.base.rigEnabled && (d.base.rigCost+d.base.buildCost)>150000) warnings.push(`<span class="warning">Rig cost is getting chunky. This is where simple dreams start wearing a top hat.</span>`);
+  if(d.base.travelMonths===12 && d.base.homeBaseCost>8000) warnings.push(`Chris and Annie are modeling full-time travel while still carrying a meaningful home-base cost.`);
+
+  document.getElementById("details").innerHTML=`
+    <div class="section">
+      <p class="section-title">Checkpoint Table</p>
+      <div class="note">${warnings.join(" ") || "No major warning flags in the current safe scenario."}</div>
+      <div class="table-wrap"><table class="mini-table"><thead><tr><th>Age</th><th>Risky Balance</th><th>Safe Balance</th><th>Middle Balance</th><th>Safe Draw</th><th>Income Saved</th><th>Travel Cost</th><th>Rig Cost</th><th>Income Offset</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+  decorateCollapsibleSection(document.querySelector("#details > .section"),100);
+}
+
+function setupChartTooltip(){
+  const c=document.getElementById('chart'),ov=document.getElementById('chart-overlay'),tip=document.getElementById('chart-tip');
+  if(!c||!ov||!tip) return;
+  function handle(e){
+    if(!_lastDraw) return;
+    const rect=c.getBoundingClientRect();
+    const mouseX=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;
+    const {risk,safe,middle,base,range}=_lastDraw;
+    const W=c.clientWidth,H=c.clientHeight,dpr=devicePixelRatio||1;
+    const pad={l:66,r:18,t:18,b:32},w=W-pad.l-pad.r,h=H-pad.t-pad.b;
+    const age=Math.round(clamp(base.startAge+(mouseX-pad.l)/w*(base.endAge-base.startAge),base.startAge,base.endAge));
+    const idx=risk.years.indexOf(age);
+    if(idx<0){clear();return;}
+    ov.width=W*dpr;ov.height=H*dpr;
+    const oc=ov.getContext('2d');
+    oc.setTransform(dpr,0,0,dpr,0,0);oc.clearRect(0,0,W,H);
+    const xp=pad.l+(age-base.startAge)/(base.endAge-base.startAge)*w;
+    const dark=getTheme()==='dark';
+    oc.strokeStyle=dark?'rgba(255,255,255,.22)':'rgba(0,0,0,.13)';
+    oc.lineWidth=1;oc.setLineDash([4,4]);
+    oc.beginPath();oc.moveTo(xp,pad.t);oc.lineTo(xp,pad.t+h);oc.stroke();oc.setLineDash([]);
+    [[risk,'#16a34a'],[safe,'#d97706'],[middle,'#7c3aed']].forEach(([s,col])=>{
+      const yy=pad.t+(1-s.values[idx]/range)*h;
+      oc.fillStyle=col;oc.beginPath();oc.arc(xp,yy,5,0,Math.PI*2);oc.fill();
+      oc.strokeStyle=dark?'#0f172a':'#fff';oc.lineWidth=2;oc.stroke();
+    });
+    const tipW=175,left=xp+14+tipW>W-8?xp-tipW-14:xp+14;
+    tip.style.cssText=`display:block;left:${left}px;top:${pad.t+8}px`;
+    tip.innerHTML=`<b>Age ${age}</b>`+
+      [['#16a34a','Risky',risk],['#d97706','Safe',safe],['#7c3aed','Sustainable',middle]]
+      .map(([col,lbl,s])=>`<div class="ctr"><span class="ctl"><i class="ctd" style="background:${col}"></i>${lbl}</span><span>${money(s.values[idx])}</span></div>`).join('');
+  }
+  function clear(){ov.getContext('2d').clearRect(0,0,ov.width,ov.height);tip.style.display='none';}
+  c.addEventListener('mousemove',handle);
+  c.addEventListener('mouseleave',clear);
+  c.addEventListener('touchmove',handle,{passive:true});
+  c.addEventListener('touchend',clear);
+}
+
+function syncSections(){
+  const chrisFinalWorkField = document.getElementById("chrisFinalWorkField");
+  if(chrisFinalWorkField) chrisFinalWorkField.classList.toggle("section-disabled", getCheck("youRetire"));
+  const partnerWorkGrid = document.getElementById("partnerWorkGrid");
+  if(partnerWorkGrid) partnerWorkGrid.classList.toggle("section-disabled", getCheck("partnerRetire"));
+  const houseGrid = document.getElementById("housePayGrid");
+  if(houseGrid) houseGrid.classList.toggle("section-disabled", getCheck("housePaidOff"));
+  const travelGrid = document.getElementById("travelGrid");
+  if(travelGrid) travelGrid.classList.toggle("section-disabled", !getCheck("travelEnabled"));
+  const rigGrid = document.getElementById("rigGrid");
+  if(rigGrid) rigGrid.classList.toggle("section-disabled", !getCheck("rigEnabled"));
+  const suppGrid = document.getElementById("suppWorkGrid");
+  if(suppGrid) suppGrid.classList.toggle("section-disabled", !getCheck("suppWorkEnabled"));
+  const campWorkGrid = document.getElementById("campWorkGrid");
+  if(campWorkGrid) campWorkGrid.classList.toggle("section-disabled", !getCheck("campWorkEnabled"));
+}
+
+let _debounce;
+function scheduleCalc(){
+  saveInputs();
+  clearTimeout(_debounce);
+  _debounce=setTimeout(runCalc,350);
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  ids.forEach(id=>defaults[id]=document.getElementById(id).value);
+  checks.forEach(id=>defaults[id]=document.getElementById(id).checked);
+  ids.forEach(id=>document.getElementById(id).addEventListener("input",()=>{document.getElementById("preset").value="custom"; scheduleCalc();}));
+  checks.forEach(id=>document.getElementById(id).addEventListener("change",()=>{document.getElementById("preset").value="custom"; syncSections(); scheduleCalc();}));
+  initTheme();
+  initCollapsibleSections();
+  setupChartTooltip();
+
+  // Wrap dollar-amount inputs with a $ prefix badge
+  document.querySelectorAll('label').forEach(label=>{
+    const txt=Array.from(label.childNodes).find(n=>n.nodeType===3)?.textContent||'';
+    if(!txt.includes('$')) return;
+    const inp=label.querySelector('input[type="number"]');
+    if(!inp) return;
+    const wrap=document.createElement('div');wrap.className='pfx';
+    inp.parentNode.insertBefore(wrap,inp);wrap.appendChild(inp);
+  });
+
+  // Assign color accent to each section's left border
+  const ACCENTS={
+    'Scenario Presets':'var(--purple)',
+    'Core Retirement':'var(--blue)',
+    'Who Retires?':'var(--purple)',
+    'House + Home Base':'var(--orange)',
+    'Travel Life':'var(--teal)',
+    'Camper / Van Purchase':'var(--green)',
+    'Guaranteed Income':'var(--orange)',
+    'Remote / Part-Time Work':'var(--purple)',
+    'Campground Work / Workamping':'var(--teal)',
+    'One-Time Windfalls':'var(--pink)',
+  };
+  document.querySelectorAll('.section').forEach(sec=>{
+    const title=sec.querySelector(':scope>.section-title');
+    if(!title) return;
+    const color=ACCENTS[title.textContent.trim()];
+    if(color){sec.classList.add('ac');sec.style.setProperty('--ac',color);}
+  });
+
+  loadInputs();
+  syncSections();
+  runCalc();
+});
+</script>
+</div>
+</body>
+</html>
