@@ -964,34 +964,42 @@ function shift(d){const[y,mo]=cursor.split('-').map(Number);cursor=monthKey(new 
 
 // ---- Boot: auth gate, then load from Supabase, then render ----
 async function boot(){
-  const session = await getSession();
-  if(!session){ showLogin(); return; }
-  await startApp();
+  try{
+    const session = await getSession();
+    if(!session){ showLogin(); return; }
+    await startApp();
+  }catch(err){
+    showFatal(err);
+  }
 }
 
 async function startApp(){
-  document.getElementById('loginScreen')?.remove();
-  document.getElementById('appRoot').style.display='';
-  const hid = await resolveHousehold();
-  if(!hid){
-    document.getElementById('appRoot').innerHTML =
-      '<div style="padding:40px;text-align:center;color:var(--text-dim)">Your login works, but this account isn\'t linked to a household yet.<br>Run the household setup SQL (see schema.sql) and reload.</div>';
-    return;
+  try{
+    document.getElementById('loginScreen')?.remove();
+    document.getElementById('appRoot').style.display='';
+    const hid = await resolveHousehold();
+    if(!hid){
+      document.getElementById('appRoot').innerHTML =
+        `<div style="padding:40px;text-align:center;color:var(--text-dim)">Your login works, but this account isn't linked to a household yet.<br>Run the household setup SQL (see schema.sql) and reload.</div>`;
+      return;
+    }
+    state = await loadState();
+    const duplicateIds=normalizeImportedState();
+    const changedRetirementLines=normalizeRetirementFundLines();
+    const changedPhoneLines=normalizePhoneLines();
+    if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
+    if(duplicateIds.length||changedRetirementLines||changedPhoneLines) save();
+    // seed defaults for the current month if missing or if a partial DB row exists
+    // without the budget template.
+    ensureMonth(cursor,true);
+    if(!state.rules || !state.rules.length) state.rules = defaultRules().map(r=>[r[0],r[1],'chase']);
+    if(!state.trips) state.trips=[];
+    wireChrome();
+    window._signout = async ()=>{ await flushSave(state); await signOut(); location.reload(); };
+    render();
+  }catch(err){
+    showFatal(err);
   }
-  state = await loadState();
-  const duplicateIds=normalizeImportedState();
-  const changedRetirementLines=normalizeRetirementFundLines();
-  const changedPhoneLines=normalizePhoneLines();
-  if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
-  if(duplicateIds.length||changedRetirementLines||changedPhoneLines) save();
-  // seed defaults for the current month if missing or if a partial DB row exists
-  // without the budget template.
-  ensureMonth(cursor,true);
-  if(!state.rules || !state.rules.length) state.rules = defaultRules().map(r=>[r[0],r[1],'chase']);
-  if(!state.trips) state.trips=[];
-  wireChrome();
-  window._signout = async ()=>{ await flushSave(state); await signOut(); location.reload(); };
-  render();
 }
 
 function showLogin(){
@@ -1014,12 +1022,27 @@ function showLogin(){
     const pass=document.getElementById('loginPass').value;
     const err=document.getElementById('loginErr');
     err.textContent='Signing in...';
-    const { error } = await signIn(email,pass);
-    if(error){ err.textContent=error.message; return; }
-    await startApp();
+    try{
+      const { error } = await signIn(email,pass);
+      if(error){ err.textContent=error.message; return; }
+      await startApp();
+    }catch(ex){
+      err.textContent=ex.message || String(ex);
+    }
   };
   document.getElementById('loginBtn').onclick=go;
   document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')go();});
+}
+
+function showFatal(err){
+  const msg=(err&&err.message)?err.message:String(err);
+  document.getElementById('loginScreen')?.remove();
+  const root=document.getElementById('appRoot');
+  root.style.display='';
+  root.innerHTML=`<div class="wrap"><div style="margin:34px auto;max-width:680px;background:var(--surface);border:1px solid var(--red);border-radius:var(--radius);padding:18px;color:var(--text)">
+    <h1 style="font-size:1.1rem;margin-bottom:8px">Ledger could not load</h1>
+    <p style="color:var(--text-dim);font-size:.9rem;line-height:1.6">${msg}</p>
+  </div></div>`;
 }
 
 boot();

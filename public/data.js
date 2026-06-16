@@ -9,21 +9,29 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const missingConfig = !SUPABASE_URL || !SUPABASE_ANON_KEY;
+export const supabase = missingConfig ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function requireSupabase() {
+  if (missingConfig) {
+    throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify, then redeploy.');
+  }
+  return supabase;
+}
 
 let householdId = null;
 
 export async function getSession() {
-  const { data } = await supabase.auth.getSession();
+  const { data } = await requireSupabase().auth.getSession();
   return data.session;
 }
 export async function signIn(email, password) {
-  return supabase.auth.signInWithPassword({ email, password });
+  return requireSupabase().auth.signInWithPassword({ email, password });
 }
-export async function signOut() { return supabase.auth.signOut(); }
+export async function signOut() { return requireSupabase().auth.signOut(); }
 
 export async function resolveHousehold() {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('household_members').select('household_id').limit(1).maybeSingle();
   if (error) throw error;
   householdId = data?.household_id || null;
@@ -37,10 +45,10 @@ export async function loadState() {
   if (!householdId) return state; // not set up yet
 
   const [months, rules, trips, txns] = await Promise.all([
-    supabase.from('months').select('*'),
-    supabase.from('rules').select('*').order('priority', { ascending: false }),
-    supabase.from('trips').select('*'),
-    supabase.from('transactions').select('*'),
+    requireSupabase().from('months').select('*'),
+    requireSupabase().from('rules').select('*').order('priority', { ascending: false }),
+    requireSupabase().from('trips').select('*'),
+    requireSupabase().from('transactions').select('*'),
   ]);
 
   (months.data || []).forEach(row => {
@@ -95,7 +103,7 @@ export async function flushSave(state) {
     groups: m.groups || [], one_time: m.oneTime || [],
     updated_at: new Date().toISOString(),
   }));
-  if (monthRows.length) await supabase.from('months').upsert(monthRows);
+  if (monthRows.length) await requireSupabase().from('months').upsert(monthRows);
 
   // transactions: upsert those with _id, insert those without
   for (const [key, m] of Object.entries(state.months)) {
@@ -105,29 +113,29 @@ export async function flushSave(state) {
         txn_date: normDate(t.date), description: t.desc, amount: t.amount,
         txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
       };
-      if (t._id) { row.id = t._id; await supabase.from('transactions').upsert(row); }
+      if (t._id) { row.id = t._id; await requireSupabase().from('transactions').upsert(row); }
       else {
-        const { data } = await supabase.from('transactions').insert(row).select('id').single();
+        const { data } = await requireSupabase().from('transactions').insert(row).select('id').single();
         if (data) t._id = data.id;
       }
     }
   }
 
   // rules: replace-all is simplest and safe for this volume
-  await supabase.from('rules').delete().eq('household_id', hid);
+  await requireSupabase().from('rules').delete().eq('household_id', hid);
   const ruleRows = (state.rules || []).map((r, i) => ({
     household_id: hid, keyword: r[0], line_name: r[1],
     source: r[2] || 'chase', priority: (state.rules.length - i),
   }));
-  if (ruleRows.length) await supabase.from('rules').insert(ruleRows);
+  if (ruleRows.length) await requireSupabase().from('rules').insert(ruleRows);
 
   // trips
-  await supabase.from('trips').delete().eq('household_id', hid);
+  await requireSupabase().from('trips').delete().eq('household_id', hid);
   const tripRows = (state.trips || []).map(t => ({
     household_id: hid, name: t.name || '', start_date: t.start || null,
     end_date: t.end || null, kind: t.kind || 'personal',
   }));
-  if (tripRows.length) await supabase.from('trips').insert(tripRows);
+  if (tripRows.length) await requireSupabase().from('trips').insert(tripRows);
 }
 
 function normDate(d) {
@@ -141,12 +149,12 @@ function normDate(d) {
 // Delete a single transaction (e.g. clearing an import)
 export async function deleteTxns(monthKey) {
   if (!householdId) return;
-  await supabase.from('transactions').delete()
+  await requireSupabase().from('transactions').delete()
     .eq('household_id', householdId).eq('month_key', monthKey);
 }
 
 export async function deleteTxnIds(ids) {
   if (!householdId || !ids?.length) return;
-  await supabase.from('transactions').delete()
+  await requireSupabase().from('transactions').delete()
     .eq('household_id', householdId).in('id', ids);
 }
