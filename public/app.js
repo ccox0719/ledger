@@ -379,7 +379,7 @@ function recalcBalances(m){
 function renderBudget(m){
   const c=document.getElementById('budgetView');
   const s=sums(m);
-  html=`<div class="pool"><div><div class="lbl">Net this month (income − spending − transfers)</div>
+  let html=`<div class="pool"><div><div class="lbl">Net this month (income − spending − transfers)</div>
     <div class="amt ${(s.inc-s.exp-s.xfer)>0.005?'pos':(s.inc-s.exp-s.xfer)<-0.005?'neg':'zero'}">${money(s.inc-s.exp-s.xfer)}</div>
     <div class="hint">what's left over after everything clears</div></div>
     <div class="totals">Income <b>${moneyS(s.inc)}</b><br>Spending <b>${moneyS(s.exp)}</b><br>Transfers <b>${moneyS(s.xfer)}</b></div></div>`;
