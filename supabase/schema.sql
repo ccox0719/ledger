@@ -20,6 +20,13 @@ create table if not exists household_members (
   primary key (user_id, household_id)
 );
 
+-- If a previous partial run created tables without the current columns,
+-- reconcile them before creating functions and RLS policies.
+alter table household_members
+  add column if not exists household_id uuid references households(id) on delete cascade,
+  add column if not exists role text not null default 'editor',
+  add column if not exists created_at timestamptz not null default now();
+
 -- Helper: returns the household_id for the currently-authenticated user.
 create or replace function current_household()
 returns uuid
@@ -40,6 +47,13 @@ create table if not exists months (
   updated_at timestamptz not null default now(),
   primary key (household_id, month_key)
 );
+alter table months
+  add column if not exists household_id uuid references households(id) on delete cascade,
+  add column if not exists month_key text,
+  add column if not exists today_balance numeric,
+  add column if not exists groups jsonb not null default '[]',
+  add column if not exists one_time jsonb not null default '[]',
+  add column if not exists updated_at timestamptz not null default now();
 
 -- 3) TRANSACTIONS ----------------------------------------------
 -- Imported CSV rows (Chase card + US Bank checking). The data you can't recreate.
@@ -56,6 +70,17 @@ create table if not exists transactions (
   work_travel boolean not null default false,
   created_at timestamptz not null default now()
 );
+alter table transactions
+  add column if not exists household_id uuid references households(id) on delete cascade,
+  add column if not exists month_key text,
+  add column if not exists source text not null default 'chase',
+  add column if not exists txn_date date,
+  add column if not exists description text,
+  add column if not exists amount numeric,
+  add column if not exists txn_type text,
+  add column if not exists category text,
+  add column if not exists work_travel boolean not null default false,
+  add column if not exists created_at timestamptz not null default now();
 create index if not exists transactions_household_month
   on transactions (household_id, month_key);
 
@@ -70,6 +95,13 @@ create table if not exists rules (
   priority int not null default 0,          -- higher = checked first (longer keywords win)
   created_at timestamptz not null default now()
 );
+alter table rules
+  add column if not exists household_id uuid references households(id) on delete cascade,
+  add column if not exists source text not null default 'chase',
+  add column if not exists keyword text,
+  add column if not exists line_name text,
+  add column if not exists priority int not null default 0,
+  add column if not exists created_at timestamptz not null default now();
 
 -- 5) TRIPS -----------------------------------------------------
 create table if not exists trips (
@@ -81,6 +113,13 @@ create table if not exists trips (
   kind text not null default 'personal',    -- 'personal' | 'work'
   created_at timestamptz not null default now()
 );
+alter table trips
+  add column if not exists household_id uuid references households(id) on delete cascade,
+  add column if not exists name text not null default '',
+  add column if not exists start_date date,
+  add column if not exists end_date date,
+  add column if not exists kind text not null default 'personal',
+  add column if not exists created_at timestamptz not null default now();
 
 -- ============================================================
 -- ROW LEVEL SECURITY
@@ -92,6 +131,13 @@ alter table months            enable row level security;
 alter table transactions      enable row level security;
 alter table rules             enable row level security;
 alter table trips             enable row level security;
+
+drop policy if exists "members read household" on households;
+drop policy if exists "read own membership" on household_members;
+drop policy if exists "months rw" on months;
+drop policy if exists "transactions rw" on transactions;
+drop policy if exists "rules rw" on rules;
+drop policy if exists "trips rw" on trips;
 
 -- households: members can see their own household
 create policy "members read household" on households

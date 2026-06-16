@@ -10,6 +10,9 @@ deployed to Netlify (same pattern as the devotional app).
    (Settings → API).
 2. SQL Editor → New query → paste all of `supabase/schema.sql` → Run.
    This creates the tables, row-level security, and the `current_household()` helper.
+   If you previously ran an older partial schema and see `column "household_id"
+   does not exist`, rerun the full current `supabase/schema.sql`; it includes
+   compatibility `ALTER TABLE` statements before recreating the policies.
 
 ### 2. Create your two logins
 1. Authentication → Users → Add user → create one for you, one for Annie
