@@ -351,12 +351,14 @@ function render(){
   document.getElementById('tabFlow').className=view==='flow'?'on':'';
   document.getElementById('tabBudget').className=view==='budget'?'on':'';
   document.getElementById('tabCompare').className=view==='compare'?'on':'';
+  document.getElementById('tabYear').className=view==='year'?'on':'';
   document.getElementById('tabTravel').className=view==='travel'?'on':'';
   document.getElementById('flowView').style.display=view==='flow'?'':'none';
   document.getElementById('budgetView').style.display=view==='budget'?'':'none';
   document.getElementById('compareView').style.display=view==='compare'?'':'none';
+  document.getElementById('yearView').style.display=view==='year'?'':'none';
   document.getElementById('travelView').style.display=view==='travel'?'':'none';
-  if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else renderTravel(m);
+  if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else if(view==='year')renderYearReport(); else renderTravel(m);
 }
 
 function renderFlow(m){
@@ -632,6 +634,88 @@ function buildActuals(m){
     byLine[line]=(byLine[line]||0)+spend;
   });
   return {byLine,uncategorized,count:txns.length,workTravel,income,skipped};
+}
+function yearKey(){return cursor.slice(0,4);}
+function collectYearTxns(year=yearKey()){
+  return Object.entries(state.months||{})
+    .filter(([key])=>key.startsWith(year+'-'))
+    .flatMap(([month,m])=>(m.imported||[]).map(t=>({...t,month})));
+}
+function buildYearActuals(year=yearKey()){
+  const byLine={}, uncategorized=[], byMonth={}, bySource={};
+  let workTravel=0, income=0, skipped=0, spending=0;
+  collectYearTxns(year).forEach(t=>{
+    const source=t.source||'chase';
+    bySource[source]=(bySource[source]||0)+1;
+    let line=t.cat!==undefined?t.cat:categorize(t.desc,source);
+    if(t.workTravel){workTravel+=Math.abs(t.amount||0);return;}
+    if(line==='__INCOME__'){income+=Math.abs(t.amount||0);return;}
+    if(line==='__CARDPAY__'||line==='__SKIP__'){skipped+=Math.abs(t.amount||0);return;}
+    const spend=-(Number(t.amount)||0);
+    if(spend<=0)return;
+    spending+=spend;
+    byMonth[t.month]=(byMonth[t.month]||0)+spend;
+    if(!line){uncategorized.push(t);return;}
+    byLine[line]=(byLine[line]||0)+spend;
+  });
+  return {byLine,uncategorized,byMonth,bySource,workTravel,income,skipped,spending,count:collectYearTxns(year).length};
+}
+function renderYearReport(){
+  const c=document.getElementById('yearView');
+  const year=yearKey();
+  const report=buildYearActuals(year);
+  const rows=Object.entries(report.byLine).map(([name,actual])=>({name,actual})).sort((a,b)=>b.actual-a.actual);
+  if(!report.count){
+    c.innerHTML=`<div style="text-align:center;color:var(--text-dim);font-size:.9rem;padding:30px 16px">No imported transactions for ${year} yet. Import CSV files in the Compare tab and this report will summarize the year.</div>`;
+    return;
+  }
+  const top=rows.slice(0,8);
+  let html=`<div class="cmp-summary">
+    <div class="cmp-stat"><div class="k">${year} spending</div><div class="v">${moneyS(report.spending)}</div></div>
+    <div class="cmp-stat"><div class="k">Transactions</div><div class="v">${report.count}</div></div>
+    <div class="cmp-stat"><div class="k">Uncategorized</div><div class="v" style="color:${report.uncategorized.length?'var(--red)':'var(--mint)'}">${report.uncategorized.length}</div></div>
+  </div>`;
+  html+=`<div class="src-note">Year report uses imported transactions from all ${year} months. Work travel (${moneyS(report.workTravel)}) and transfers/fees (${moneyS(report.skipped)}) are excluded from spending.</div>`;
+  if(top.length){
+    html+=`<div class="cmp-group"><div class="cmp-ghead"><span>Top Categories</span><span>${money(report.spending)}</span></div>`;
+    top.forEach(r=>{
+      const pct=report.spending?Math.min(100,(r.actual/report.spending)*100):0;
+      html+=`<div class="cmp-line">
+        <span class="cl-name">${r.name}</span>
+        <div class="cl-track"><div class="cl-fill" style="width:${pct}%;background:var(--amber)"></div></div>
+        <span class="cl-nums">${money(r.actual)} · ${Math.round(pct)}%</span>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  html+=`<div class="cmp-group"><div class="cmp-ghead"><span>All Categories</span><span>${rows.length}</span></div>`;
+  rows.forEach(r=>{
+    html+=`<div class="cmp-line"><span class="cl-name">${r.name}</span><span class="cl-nums">${money(r.actual)}</span></div>`;
+  });
+  html+=`</div>`;
+  const months=Object.entries(report.byMonth).sort(([a],[b])=>a.localeCompare(b));
+  if(months.length){
+    html+=`<div class="cmp-group"><div class="cmp-ghead"><span>Monthly Spending</span><span></span></div>`;
+    const max=Math.max(...months.map(([,v])=>v),1);
+    months.forEach(([mk,total])=>{
+      html+=`<div class="cmp-line">
+        <span class="cl-name">${monAbbr(mk)}</span>
+        <div class="cl-track"><div class="cl-fill" style="width:${Math.min(100,total/max*100)}%;background:var(--blue)"></div></div>
+        <span class="cl-nums">${money(total)}</span>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  if(report.uncategorized.length){
+    const total=report.uncategorized.reduce((s,t)=>s+Math.max(0,-Number(t.amount||0)),0);
+    html+=`<div class="cmp-group"><div class="cmp-ghead"><span>Uncategorized</span><span>${money(total)}</span></div>
+      <div style="font-size:.74rem;color:var(--text-dim);padding:4px 4px 8px">Assign these in monthly Compare views to improve the year report.</div>`;
+    report.uncategorized.slice(0,20).forEach(t=>{
+      html+=`<div class="cmp-line"><span class="cl-name">${shortDate(t.date)} · ${t.desc}</span><span class="cl-nums">${money(Math.max(0,-Number(t.amount||0)))}</span></div>`;
+    });
+    html+=`</div>`;
+  }
+  c.innerHTML=html;
 }
 
 // Travel detection: scan imported txns for travel-signal merchants, cluster by date proximity
@@ -1234,6 +1318,7 @@ function wireChrome(){
   document.getElementById('tabFlow').onclick=()=>{view='flow';render();};
   document.getElementById('tabBudget').onclick=()=>{view='budget';render();};
   document.getElementById('tabCompare').onclick=()=>{view='compare';render();};
+  document.getElementById('tabYear').onclick=()=>{view='year';render();};
   document.getElementById('tabTravel').onclick=()=>{view='travel';render();};
   document.getElementById('prevMonth').onclick=()=>shift(-1);
   document.getElementById('nextMonth').onclick=()=>shift(1);
