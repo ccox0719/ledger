@@ -1214,6 +1214,25 @@ function shortDate(d){
   if(mdy)return `${Number(mdy[1])}/${Number(mdy[2])}`;
   return s;
 }
+function findTxnRef(tx){
+  const m=state.months?.[tx.month];
+  return (m?.imported||[]).find(t=>t.desc===tx.desc&&t.date===tx.date&&t.amount===tx.amount&&(t.source||'')===(tx.source||''));
+}
+function taggedTravelTxns(year=yearKey()){
+  return collectYearTxns(year)
+    .filter(t=>t.workTravel||t.cat==='Vacation')
+    .map(t=>({...t,d:parseMDY(t.date)}))
+    .sort((a,b)=>(a.d||0)-(b.d||0));
+}
+function tripForTxn(tx,trips=getTrips()){
+  if(!tx.d)return null;
+  return trips.find(t=>{
+    if(!t.start)return false;
+    const s=new Date(t.start+'T00:00');
+    const e=new Date((t.end||t.start)+'T00:00');
+    return tx.d>=s&&tx.d<=e;
+  })||null;
+}
 function wireReview(m,panel){
   panel.querySelectorAll('[data-sort]').forEach(btn=>btn.addEventListener('click',()=>{
     const key=btn.dataset.sort;
@@ -1280,6 +1299,28 @@ function renderTravel(m){
     });
     html+=`</div>`;
   }
+  const tagged=taggedTravelTxns(yearKey());
+  html+=`<div class="travel-review"><h2>Tagged Travel Transactions</h2>`;
+  if(!tagged.length){
+    html+=`<div class="src-note">No imported transactions are currently tagged as vacation or work reimbursement for ${yearKey()}.</div>`;
+  } else {
+    html+=`<div class="src-note">${tagged.length} imported transaction${tagged.length===1?'':'s'} tagged as Vacation or work reimbursement for ${yearKey()}. Items are matched to logged trips when their dates fall inside a trip range.</div>`;
+    tagged.forEach((tx,i)=>{
+      const trip=tripForTxn(tx,trips);
+      const status=tx.workTravel?'work':'vacation';
+      html+=`<div class="travel-txn">
+        <span class="tt-date">${shortDate(tx.date)}</span>
+        <span class="tt-desc" title="${(tx.desc||'').replace(/"/g,'&quot;')}">${trip?`[${trip.name||trip.kind}] `:''}${tx.desc||''}</span>
+        <span class="tt-amt">${money(Math.abs(Number(tx.amount)||0))}</span>
+        <span class="tt-actions">
+          <button class="${status==='vacation'?'on':''}" data-travel-idx="${i}" data-travel-as="vacation">Vacation</button>
+          <button class="work ${status==='work'?'on':''}" data-travel-idx="${i}" data-travel-as="work">Work reimb.</button>
+          <button data-travel-idx="${i}" data-travel-as="clear">Clear</button>
+        </span>
+      </div>`;
+    });
+  }
+  html+=`</div>`;
   c.innerHTML=html;
 
   // work/personal toggle
@@ -1308,6 +1349,16 @@ function renderTravel(m){
   }));
   c.querySelectorAll('[data-edit-kind]').forEach(b=>b.addEventListener('click',()=>{
     const t=getTrips().find(x=>x.id===b.dataset.editKind);if(t){t.kind=b.dataset.k;save();renderTravel(m);}
+  }));
+  c.querySelectorAll('[data-travel-idx]').forEach(b=>b.addEventListener('click',()=>{
+    const tx=tagged[+b.dataset.travelIdx];
+    const real=findTxnRef(tx);
+    if(!real)return;
+    if(b.dataset.travelAs==='work'){real.workTravel=true;real.cat=undefined;}
+    else if(b.dataset.travelAs==='vacation'){real.workTravel=false;real.cat='Vacation';}
+    else {real.workTravel=false;real.cat=undefined;}
+    save();
+    renderTravel(m);
   }));
 }
 
