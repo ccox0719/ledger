@@ -144,14 +144,29 @@ function cloneMonthTemplate(prior){
   mm.imported=[];
   return mm;
 }
+function hasBudgetLines(m){
+  return !!(m&&Array.isArray(m.groups)&&m.groups.some(g=>Array.isArray(g.lines)&&g.lines.length));
+}
+function defaultBudgetFor(existing={}){
+  const fresh=defaultMonth();
+  return {
+    ...fresh,
+    todayBalance: existing.todayBalance ?? fresh.todayBalance,
+    oneTime: existing.oneTime || fresh.oneTime,
+    imported: existing.imported || fresh.imported,
+  };
+}
 function ensureMonth(key, shouldSave=false){
   if(!state.months[key]){
-    const keys=Object.keys(state.months).filter(k=>k<key).sort();
+    const keys=Object.keys(state.months).filter(k=>k<key&&hasBudgetLines(state.months[k])).sort();
     if(keys.length){
       const prior=state.months[keys[keys.length-1]];
       state.months[key]=cloneMonthTemplate(prior);
       state.months[key].todayBalance=endingBalance(prior);
     } else state.months[key]=defaultMonth();
+    if(shouldSave) save();
+  } else if(!hasBudgetLines(state.months[key])){
+    state.months[key]=defaultBudgetFor(state.months[key]);
     if(shouldSave) save();
   }
   if(!state.months[key].imported) state.months[key].imported=[];
@@ -969,8 +984,9 @@ async function startApp(){
   const changedPhoneLines=normalizePhoneLines();
   if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
   if(duplicateIds.length||changedRetirementLines||changedPhoneLines) save();
-  // seed defaults for the current month if empty
-  if(!state.months[cursor]) { state.months[cursor]=defaultMonth(); save(); }
+  // seed defaults for the current month if missing or if a partial DB row exists
+  // without the budget template.
+  ensureMonth(cursor,true);
   if(!state.rules || !state.rules.length) state.rules = defaultRules().map(r=>[r[0],r[1],'chase']);
   if(!state.trips) state.trips=[];
   wireChrome();
