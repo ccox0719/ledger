@@ -5,6 +5,8 @@ import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, sch
 let state = { months:{}, rules:[], trips:[] };
 let cursor = monthKey(new Date(2026,5,1));
 let view = 'flow';
+let importingCSV = false;
+let importStatus = '';
 
 // Save on tab close to flush any pending debounce
 window.addEventListener('beforeunload', () => { try { flushSave(state); } catch(e){} });
@@ -112,6 +114,21 @@ function defaultRules(){
 }
 function getRules(){ if(!state.rules)state.rules=defaultRules().map(r=>[r[0],r[1],'chase']); return state.rules; }
 function getTrips(){ if(!state.trips)state.trips=[]; return state.trips; }
+
+function setImportStatus(message){
+  importingCSV=!!message;
+  importStatus=message||'';
+  document.querySelectorAll('.import-status').forEach(el=>{
+    el.classList.toggle('on',!!message);
+    const text=el.querySelector('.import-text');
+    if(text)text.textContent=message||'';
+  });
+  document.querySelectorAll('.csv-upload').forEach(el=>{
+    el.classList.toggle('uploading',!!message);
+    const label=el.querySelector('.csv-label');
+    if(label)label.textContent=message?'Working...':(el.dataset.label||'Import CSV');
+  });
+}
 
 // Checking-account rules (US Bank). Maps the bank's payee names to budget lines.
 // Income/transfers handled specially in buildActuals; these are for direct-from-checking spending.
@@ -620,10 +637,11 @@ function renderCompare(m){
       <div style="font-size:.9rem;color:var(--text-dim);margin-bottom:16px;line-height:1.6">
         Upload Chase card or US Bank checking CSVs to compare actual spending against your budget.<br>
         Files may include multiple months; transactions will be placed in the right month automatically.</div>
-      <label class="add-group" style="cursor:pointer;display:inline-block;max-width:280px">
-        ⬆ Choose CSV file
+      <label class="add-group csv-upload ${importingCSV?'uploading':''}" data-label="⬆ Choose CSV file" style="cursor:pointer;display:inline-block;max-width:280px">
+        <span class="csv-label">${importingCSV?'Working...':'⬆ Choose CSV file'}</span>
         <input type="file" id="csvFile" accept=".csv,.CSV" style="display:none">
-      </label></div>`;
+      </label>
+      <div class="import-status ${importingCSV?'on':''}"><span class="spinner"></span><span class="import-text">${importStatus}</span></div></div>`;
     document.getElementById('csvFile').addEventListener('change',handleCSV);
     return;
   }
@@ -726,8 +744,9 @@ function renderCompare(m){
   html+=`<button class="add-group" id="toggleReview" style="margin-top:14px">🔍 Review all parsed transactions (${(m.imported||[]).length})</button>
     <div id="reviewPanel" style="display:none"></div>`;
 
-  html+=`<div style="display:flex;gap:8px;margin-top:12px">
-    <label class="add-group" style="cursor:pointer;flex:1;text-align:center">⬆ Import CSV across months<input type="file" id="csvFile" accept=".csv,.CSV" style="display:none"></label>
+  html+=`<div class="import-status ${importingCSV?'on':''}"><span class="spinner"></span><span class="import-text">${importStatus}</span></div>
+  <div style="display:flex;gap:8px;margin-top:12px">
+    <label class="add-group csv-upload ${importingCSV?'uploading':''}" data-label="⬆ Import CSV across months" style="cursor:pointer;flex:1;text-align:center"><span class="csv-label">${importingCSV?'Working...':'⬆ Import CSV across months'}</span><input type="file" id="csvFile" accept=".csv,.CSV" style="display:none"></label>
     <button class="add-group" id="clearCsv" style="flex:1">Clear all imports</button></div>`;
   c.innerHTML=html;
 
@@ -952,37 +971,54 @@ function normalizeBudgetTemplate(){
   return changed;
 }
 function handleCSV(e){
+  if(importingCSV)return;
   const file=e.target.files[0]; if(!file)return;
+  setImportStatus(`Reading ${file.name}...`);
   const reader=new FileReader();
   reader.onload=async()=>{
-    const all=parseCSV(reader.result);
-    const src=all._source||'chase';
-    const byMonth=new Map();
-    all.forEach(t=>{
-      const mk=txnMonthKey(t.date);
-      if(!mk) return;
-      if(!byMonth.has(mk)) byMonth.set(mk,[]);
-      byMonth.get(mk).push(t);
-    });
-    let added=0, updated=0, skipped=all.length;
-    const touched=[...byMonth.keys()].sort();
-    for(const mk of touched){
-      const m=ensureMonth(mk);
-      const merged=mergeImported(m.imported||[],byMonth.get(mk));
-      m.imported=merged.rows;
-      added+=merged.added;
-      updated+=merged.updated;
-      skipped-=byMonth.get(mk).length;
+    try{
+      setImportStatus('Parsing transactions...');
+      const all=parseCSV(reader.result);
+      const src=all._source||'chase';
+      const byMonth=new Map();
+      all.forEach(t=>{
+        const mk=txnMonthKey(t.date);
+        if(!mk) return;
+        if(!byMonth.has(mk)) byMonth.set(mk,[]);
+        byMonth.get(mk).push(t);
+      });
+      let added=0, updated=0, skipped=all.length;
+      const touched=[...byMonth.keys()].sort();
+      setImportStatus(`Matching ${all.length} rows across ${touched.length||0} month${touched.length===1?'':'s'}...`);
+      for(const mk of touched){
+        const m=ensureMonth(mk);
+        const merged=mergeImported(m.imported||[],byMonth.get(mk));
+        m.imported=merged.rows;
+        added+=merged.added;
+        updated+=merged.updated;
+        skipped-=byMonth.get(mk).length;
+      }
+      const dupes=normalizeImportedState();
+      if(dupes.length) await deleteTxnIds(dupes);
+      save();
+      setImportStatus('Saving imported transactions...');
+      await flushSave(state);
+      if(!touched.includes(cursor) && touched.length) cursor=touched[touched.length-1];
+      view='compare';
+      const msg=`Imported ${added} new and matched ${updated} existing ${src==='usbank'?'US Bank':'Chase'} transactions across ${touched.length} month${touched.length===1?'':'s'}${skipped?`; skipped ${skipped} rows without usable dates`:''}.`;
+      setImportStatus('');
+      render();
+      setTimeout(()=>noticeModal('Import Complete',msg),0);
+    }catch(err){
+      setImportStatus('');
+      noticeModal('Import Failed',err.message||String(err));
+    }finally{
+      e.target.value='';
     }
-    const dupes=normalizeImportedState();
-    if(dupes.length) await deleteTxnIds(dupes);
-    save();
-    await flushSave(state);
-    if(!touched.includes(cursor) && touched.length) cursor=touched[touched.length-1];
-    view='compare';
-    render();
-    const msg=`Imported ${added} new and matched ${updated} existing ${src==='usbank'?'US Bank':'Chase'} transactions across ${touched.length} month${touched.length===1?'':'s'}${skipped?`; skipped ${skipped} rows without usable dates`:''}.`;
-    setTimeout(()=>noticeModal('Import Complete',msg),0);
+  };
+  reader.onerror=()=>{
+    setImportStatus('');
+    noticeModal('Import Failed','The file could not be read.');
   };
   reader.readAsText(file);
 }

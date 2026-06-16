@@ -167,6 +167,11 @@
   .tc-del{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1.2rem;opacity:.4;padding:0 4px;}
   .tc-del:hover{color:var(--red);opacity:1;}
   .src-note{font-size:.76rem;color:var(--text-dim);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 12px;margin-top:6px;}
+  .import-status{display:none;align-items:center;gap:9px;background:rgba(224,164,88,.1);border:1px solid var(--amber);color:var(--amber);border-radius:9px;padding:10px 12px;margin-top:10px;font-size:.8rem;font-weight:700;}
+  .import-status.on{display:flex;}
+  .spinner{width:14px;height:14px;border:2px solid rgba(224,164,88,.28);border-top-color:var(--amber);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;}
+  .uploading{opacity:.7;pointer-events:none;}
+  @keyframes spin{to{transform:rotate(360deg);}}
   .cc-suggest{display:flex;justify-content:space-between;align-items:center;gap:12px;background:rgba(127,169,201,.08);border:1px solid var(--blue);border-radius:var(--radius);padding:12px 14px;margin-top:10px;}
   .cc-suggest b{color:var(--blue);font-family:var(--mono);font-size:1.05rem;}
   .cc-suggest .cc-sub{font-size:.72rem;color:var(--text-dim);}
