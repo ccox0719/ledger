@@ -147,6 +147,7 @@ function monthName(k){const[y,m]=k.split('-').map(Number);return new Date(y,m-1,
 function monAbbr(k){const[y,m]=k.split('-').map(Number);return new Date(y,m-1,1).toLocaleString('en-US',{month:'short'});}
 function money(n){return '$'+(n<0?'-':'')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function moneyS(n){return '$'+Math.round(n).toLocaleString('en-US');}
+const MONTHS_SHORT=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function getMonth(){
   return ensureMonth(cursor,true);
@@ -192,19 +193,45 @@ function ensureMonth(key, shouldSave=false){
   return state.months[key];
 }
 const flat=m=>m.groups.flatMap(g=>g.lines);
+function monthNum(key=cursor){return Number(key.split('-')[1]);}
+function dueMonth(l){return Math.min(12,Math.max(1,Number(l.dueMonth)||1));}
+function cadenceDivisor(cadence){
+  if(cadence==='even'||cadence==='odd')return 2;
+  if(cadence==='quarterly')return 3;
+  if(cadence==='semiannual')return 6;
+  if(cadence==='annual')return 12;
+  return 1;
+}
 function cadenceActive(l,key=cursor){
   if(!l.cadence||l.cadence==='monthly') return true;
-  const month=Number(key.split('-')[1]);
+  const month=monthNum(key);
   if(l.cadence==='even') return month%2===0;
   if(l.cadence==='odd') return month%2===1;
+  if(l.cadence==='quarterly') return (month-dueMonth(l)+12)%3===0;
+  if(l.cadence==='semiannual') return (month-dueMonth(l)+12)%6===0;
+  if(l.cadence==='annual') return month===dueMonth(l);
   return true;
 }
 function cadenceLabel(cadence){
-  return cadence==='even'?'even months':cadence==='odd'?'odd months':'monthly';
+  if(cadence==='even')return 'even months';
+  if(cadence==='odd')return 'odd months';
+  if(cadence==='quarterly')return 'quarterly';
+  if(cadence==='semiannual')return 'semiannual';
+  if(cadence==='annual')return 'annual';
+  return 'monthly';
 }
-function lineAmt(l,key=cursor){return cadenceActive(l,key)?((l.paid&&l.actual!=null)?l.actual:(l.budgeted||0)):0;}
+function fundingLabel(mode){return mode==='smooth'?'save monthly':'pay when due';}
+function lineAmt(l,key=cursor){
+  const raw=(l.paid&&l.actual!=null)?l.actual:(l.budgeted||0);
+  if((l.fundingMode||'due')==='smooth'&&l.type!=='in')return raw/cadenceDivisor(l.cadence);
+  return cadenceActive(l,key)?raw:0;
+}
+function eventDesc(l){
+  if((l.fundingMode||'due')==='smooth'&&l.cadence&&l.cadence!=='monthly'&&l.type!=='in')return `${l.name} set-aside`;
+  return l.name;
+}
 function events(m){
-  const evs=flat(m).filter(l=>cadenceActive(l)).map(l=>({day:l.day||1,desc:l.name,grp:l.grp,type:l.type,
+  const evs=flat(m).filter(l=>lineAmt(l)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
     delta:(l.type==='in'?1:-1)*lineAmt(l),ref:l}));
   (m.oneTime||[]).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:'out',
     delta:-(o.amount||0),ref:o,oneTime:true}));
@@ -473,16 +500,20 @@ function renderBudget(m){
     <div class="hint">what's left over after everything clears</div></div>
     <div class="totals">Income <b>${moneyS(s.inc)}</b><br>Spending <b>${moneyS(s.exp)}</b><br>Transfers <b>${moneyS(s.xfer)}</b></div></div>`;
   html+=`<div class="src-note">Verizon is modeled as Chris/Annie's 2-phone share: $300.81 ÷ 6 phones × 2 = ${money(100.27)} per month, paid as ${money(200.54)} every other month. Enter Annie's phone stipend as income when you know the amount.</div>`;
-  html+=`<div class="colhead"><span class="c-name">Item</span><span class="c-ty">Type</span><span class="c-freq">Frequency</span><span class="c-day">Day</span><span class="c-amt">Amount</span><span class="c-del"></span></div><div>`;
+  html+=`<div class="colhead"><span class="c-name">Item</span><span class="c-ty">Type</span><span class="c-freq">Frequency</span><span class="c-due">Due</span><span class="c-mode">Mode</span><span class="c-day">Day</span><span class="c-amt">Amount</span><span class="c-del"></span></div><div>`;
   m.groups.forEach(g=>{
     const gt=g.lines.reduce((a,l)=>a+(l.type==='in'?lineAmt(l):-lineAmt(l)),0);
     html+=`<div class="group"><div class="group-head"><h2 contenteditable spellcheck="false" data-gid="${g.id}">${g.name}</h2><span class="gtot" data-gtot="${g.id}">${money(gt)}</span></div>`;
     g.lines.forEach(l=>{
       const ty=t=>`<option value="${t}" ${l.type===t?'selected':''}>${t==='in'?'income':t==='xfer'?'transfer':'expense'}</option>`;
       const fq=f=>`<option value="${f}" ${(l.cadence||'monthly')===f?'selected':''}>${cadenceLabel(f)}</option>`;
+      const due=m=>`<option value="${m}" ${dueMonth(l)===m?'selected':''}>${MONTHS_SHORT[m-1]}</option>`;
+      const mode=v=>`<option value="${v}" ${(l.fundingMode||'due')===v?'selected':''}>${fundingLabel(v)}</option>`;
       html+=`<div class="line"><span class="lname" contenteditable spellcheck="false" data-lid="${l.id}">${l.name}</span>
         <select class="ty" data-tyof="${l.id}">${ty('out')}${ty('in')}${ty('xfer')}</select>
-        <select class="freq" data-freqof="${l.id}">${fq('monthly')}${fq('even')}${fq('odd')}</select>
+        <select class="freq" data-freqof="${l.id}">${fq('monthly')}${fq('even')}${fq('odd')}${fq('quarterly')}${fq('semiannual')}${fq('annual')}</select>
+        <select class="due" data-dueof="${l.id}">${MONTHS_SHORT.map((_,i)=>due(i+1)).join('')}</select>
+        <select class="mode" data-modeof="${l.id}">${mode('due')}${mode('smooth')}</select>
         <input class="day" type="number" min="1" max="31" value="${l.day||1}" data-dayof="${l.id}">
         <input class="amt" type="number" step="0.01" value="${l.budgeted||''}" placeholder="0.00" data-budof="${l.id}">
         <button class="del" data-delof="${l.id}">×</button></div>`;
@@ -495,6 +526,8 @@ function renderBudget(m){
   c.querySelectorAll('[data-lid]').forEach(el=>el.addEventListener('blur',()=>{const l=flat(m).find(x=>x.id===el.dataset.lid);if(l){l.name=el.textContent.trim()||'Untitled';save();}}));
   c.querySelectorAll('[data-tyof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.tyof);if(l){l.type=el.value;save();renderBudget(m);}}));
   c.querySelectorAll('[data-freqof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.freqof);if(l){l.cadence=el.value;save();renderBudget(m);}}));
+  c.querySelectorAll('[data-dueof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.dueof);if(l){l.dueMonth=parseInt(el.value)||1;save();renderBudget(m);}}));
+  c.querySelectorAll('[data-modeof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.modeof);if(l){l.fundingMode=el.value;save();renderBudget(m);}}));
   c.querySelectorAll('[data-dayof]').forEach(el=>el.addEventListener('input',()=>{const l=flat(m).find(x=>x.id===el.dataset.dayof);if(l){l.day=Math.min(31,Math.max(1,parseInt(el.value)||1));save();}}));
   c.querySelectorAll('[data-budof]').forEach(el=>{
     el.addEventListener('input',()=>{
@@ -505,7 +538,7 @@ function renderBudget(m){
     el.addEventListener('keydown',e=>{if(e.key==='Enter')el.blur();});
   });
   c.querySelectorAll('[data-delof]').forEach(el=>el.addEventListener('click',()=>{m.groups.forEach(g=>g.lines=g.lines.filter(x=>x.id!==el.dataset.delof));save();renderBudget(m);}));
-  c.querySelectorAll('[data-addto]').forEach(el=>el.addEventListener('click',()=>{const g=m.groups.find(g=>g.id===el.dataset.addto);g.lines.push({id:crypto.randomUUID(),name:'New line',budgeted:0,day:1,grp:g.name,type:'out',cadence:'monthly',paid:false,actual:null});save();renderBudget(m);}));
+  c.querySelectorAll('[data-addto]').forEach(el=>el.addEventListener('click',()=>{const g=m.groups.find(g=>g.id===el.dataset.addto);g.lines.push({id:crypto.randomUUID(),name:'New line',budgeted:0,day:1,grp:g.name,type:'out',cadence:'monthly',dueMonth:monthNum(),fundingMode:'due',paid:false,actual:null});save();renderBudget(m);}));
   document.getElementById('addGroup').addEventListener('click',()=>{m.groups.push({id:crypto.randomUUID(),name:'NEW GROUP',lines:[]});save();renderBudget(m);});
 }
 function refreshBudgetTotals(m){
@@ -937,20 +970,22 @@ function normalizeBudgetTemplate(){
           ...(el||{}),
           id:el?.id||crypto.randomUUID(),
           name:tl.name,
-          budgeted:tl.budgeted,
-          day:tl.day,
+          budgeted:el?.budgeted??tl.budgeted,
+          day:el?.day||tl.day,
           grp:tg.name,
-          type:tl.type,
-          cadence:tl.cadence||'monthly',
+          type:el?.type||tl.type,
+          cadence:el?.cadence||tl.cadence||'monthly',
+          dueMonth:el?.dueMonth||tl.dueMonth||1,
+          fundingMode:el?.fundingMode||tl.fundingMode||'due',
           paid:el?.paid||false,
           actual:el?.actual??null,
         });
         if(!el) changed=true;
-        else if(el.name!==tl.name||el.budgeted!==tl.budgeted||el.day!==tl.day||el.grp!==tg.name||el.type!==tl.type||(el.cadence||'monthly')!==(tl.cadence||'monthly')) changed=true;
+        else if(el.name!==tl.name||el.grp!==tg.name||!el.cadence||!el.dueMonth||!el.fundingMode) changed=true;
       }
       for(const el of eg.lines||[]){
         if(!used.has(el.id)&&!/^Retirement Fund( \(\d+\))?$/.test(el.name||'')){
-          nextLines.push({...el,grp:tg.name,cadence:el.cadence||'monthly'});
+          nextLines.push({...el,grp:tg.name,cadence:el.cadence||'monthly',dueMonth:el.dueMonth||1,fundingMode:el.fundingMode||'due'});
         } else if(/^Retirement Fund( \(\d+\))?$/.test(el.name||'')&&!nextLines.some(l=>l.id===el.id)){
           changed=true;
         }

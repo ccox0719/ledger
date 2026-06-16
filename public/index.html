@@ -87,12 +87,12 @@
   .group-head h2{font-size:.8rem;text-transform:uppercase;letter-spacing:1px;color:var(--amber);font-weight:700;}
   .group-head h2[contenteditable]:focus{outline:none;color:var(--amber-bright);}
   .group-head .gtot{font-family:var(--mono);font-size:.8rem;color:var(--text-dim);}
-  .line{display:flex;align-items:center;gap:8px;padding:7px 4px;border-radius:8px;}
+  .line{display:grid;grid-template-columns:minmax(120px,1fr) 74px 104px 74px 104px 50px 90px 18px;align-items:center;gap:8px;padding:7px 4px;border-radius:8px;}
   .line:hover{background:var(--surface);}
   .line .lname{flex:1;font-size:.9rem;min-width:0;overflow:hidden;text-overflow:ellipsis;}
   .line .lname[contenteditable]:focus{outline:none;background:var(--surface-2);border-radius:4px;padding:0 3px;}
   .line select.ty{background:var(--surface-2);border:1px solid var(--line);color:var(--text-dim);border-radius:6px;padding:4px 2px;font-size:.68rem;width:74px;}
-  .line select.freq{background:var(--surface-2);border:1px solid var(--line);color:var(--text-dim);border-radius:6px;padding:4px 2px;font-size:.68rem;width:86px;}
+  .line select.freq,.line select.due,.line select.mode{background:var(--surface-2);border:1px solid var(--line);color:var(--text-dim);border-radius:6px;padding:4px 2px;font-size:.68rem;width:100%;}
   .line .day{font-family:var(--mono);font-size:.78rem;color:var(--text-dim);background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:5px 4px;width:50px;text-align:center;}
   .line .amt{font-family:var(--mono);font-size:.88rem;color:var(--amber);text-align:right;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:5px 7px;width:90px;}
   .line input:focus,.line select:focus{outline:1px solid var(--amber);}
@@ -101,8 +101,13 @@
   .add-line{background:none;border:1px dashed var(--line);color:var(--text-dim);padding:5px 11px;border-radius:7px;cursor:pointer;font-size:.76rem;margin:4px 4px 0;}
   .add-line:hover{border-color:var(--amber);color:var(--amber);}
   .add-group{display:block;width:100%;background:none;border:1px dashed var(--line);color:var(--amber);padding:10px;border-radius:var(--radius);cursor:pointer;font-size:.85rem;margin-top:8px;}
-  .colhead{display:flex;gap:8px;padding:0 4px 4px;font-size:.62rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;}
-  .colhead .c-name{flex:1;} .colhead .c-ty{width:74px;text-align:center;} .colhead .c-freq{width:86px;text-align:center;} .colhead .c-day{width:50px;text-align:center;} .colhead .c-amt{width:90px;text-align:right;} .colhead .c-del{width:18px;}
+  .colhead{display:grid;grid-template-columns:minmax(120px,1fr) 74px 104px 74px 104px 50px 90px 18px;gap:8px;padding:0 4px 4px;font-size:.62rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;}
+  .colhead span{text-align:center;}
+  .colhead .c-name{text-align:left;} .colhead .c-amt{text-align:right;}
+  @media(max-width:780px){
+    .line,.colhead{grid-template-columns:minmax(120px,1fr) 72px 94px 50px 82px;}
+    .line .due,.line .mode,.colhead .c-due,.colhead .c-mode,.line .del,.colhead .c-del{display:none;}
+  }
   .reset{display:block;margin:26px auto 0;background:none;border:none;color:var(--text-dim);font-size:.74rem;cursor:pointer;text-decoration:underline;}
   .small-note{text-align:center;color:var(--text-dim);font-size:.72rem;margin-top:14px;line-height:1.6;}
   .legend{display:flex;gap:14px;justify-content:center;font-size:.68rem;color:var(--text-dim);margin-bottom:10px;}
