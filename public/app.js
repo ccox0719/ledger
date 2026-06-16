@@ -792,6 +792,65 @@ function normalizePhoneLines(){
   }
   return changed;
 }
+function lineKey(name){
+  return String(name||'').trim().toLowerCase();
+}
+function normalizeBudgetTemplate(){
+  let changed=false;
+  const template=defaultMonth();
+  for(const m of Object.values(state.months||{})){
+    if(!hasBudgetLines(m)) continue;
+    const nextGroups=[];
+    const existingGroups=new Map((m.groups||[]).map(g=>[lineKey(g.name),g]));
+    for(const tg of template.groups){
+      const eg=existingGroups.get(lineKey(tg.name))||{id:crypto.randomUUID(),name:tg.name,lines:[]};
+      const used=new Set();
+      const existingLines=new Map();
+      for(const l of eg.lines||[]) existingLines.set(lineKey(l.name),l);
+      const nextLines=[];
+      for(const tl of tg.lines||[]){
+        let el=existingLines.get(lineKey(tl.name));
+        if(!el && tl.name==='Retirement Fund'){
+          el=(eg.lines||[]).find(l=>/^Retirement Fund( \(\d+\))?$/.test(l.name||''));
+        }
+        if(el) used.add(el.id);
+        nextLines.push({
+          ...(el||{}),
+          id:el?.id||crypto.randomUUID(),
+          name:tl.name,
+          budgeted:tl.budgeted,
+          day:tl.day,
+          grp:tg.name,
+          type:tl.type,
+          cadence:tl.cadence||'monthly',
+          paid:el?.paid||false,
+          actual:el?.actual??null,
+        });
+        if(!el) changed=true;
+        else if(el.name!==tl.name||el.budgeted!==tl.budgeted||el.day!==tl.day||el.grp!==tg.name||el.type!==tl.type||(el.cadence||'monthly')!==(tl.cadence||'monthly')) changed=true;
+      }
+      for(const el of eg.lines||[]){
+        if(!used.has(el.id)&&!/^Retirement Fund( \(\d+\))?$/.test(el.name||'')){
+          nextLines.push({...el,grp:tg.name,cadence:el.cadence||'monthly'});
+        } else if(/^Retirement Fund( \(\d+\))?$/.test(el.name||'')&&!nextLines.some(l=>l.id===el.id)){
+          changed=true;
+        }
+      }
+      nextGroups.push({...eg,name:tg.name,lines:nextLines});
+    }
+    for(const g of m.groups||[]){
+      if(!existingGroups.has(lineKey(g.name))) continue;
+      if(!template.groups.some(tg=>lineKey(tg.name)===lineKey(g.name))){
+        nextGroups.push(g);
+      }
+    }
+    if(JSON.stringify(m.groups)!==JSON.stringify(nextGroups)){
+      m.groups=nextGroups;
+      changed=true;
+    }
+  }
+  return changed;
+}
 function handleCSV(e){
   const file=e.target.files[0]; if(!file)return;
   const reader=new FileReader();
@@ -985,10 +1044,11 @@ async function startApp(){
     }
     state = await loadState();
     const duplicateIds=normalizeImportedState();
+    const changedBudgetTemplate=normalizeBudgetTemplate();
     const changedRetirementLines=normalizeRetirementFundLines();
     const changedPhoneLines=normalizePhoneLines();
     if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
-    if(duplicateIds.length||changedRetirementLines||changedPhoneLines) save();
+    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines) save();
     // seed defaults for the current month if missing or if a partial DB row exists
     // without the budget template.
     ensureMonth(cursor,true);
