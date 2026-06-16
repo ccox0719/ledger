@@ -987,12 +987,48 @@ function handleCSV(e){
   reader.readAsText(file);
 }
 
+function reviewSortState(panel=document.getElementById('reviewPanel')){
+  const sort=panel?.dataset.sort||'date';
+  const dir=panel?.dataset.dir||'desc';
+  return {sort,dir};
+}
+function reviewCategory(t){
+  return t.cat!==undefined?t.cat:categorize(t.desc,t.source);
+}
+function reviewCategoryLabel(t){
+  const cat=reviewCategory(t);
+  if(t.workTravel)return 'work travel';
+  if(cat==='__INCOME__')return 'income';
+  if(cat==='__CARDPAY__')return 'card payment';
+  if(cat==='__SKIP__')return 'transfer/fee';
+  return cat||'none';
+}
+function sortedReviewTxns(m,panel=document.getElementById('reviewPanel')){
+  const {sort,dir}=reviewSortState(panel);
+  const mult=dir==='asc'?1:-1;
+  const val=t=>{
+    if(sort==='src')return t.source||'chase';
+    if(sort==='date')return parseMDY(t.date)||0;
+    if(sort==='desc')return (t.desc||'').toUpperCase();
+    if(sort==='amount')return Number(t.amount)||0;
+    if(sort==='cat')return reviewCategoryLabel(t).toUpperCase();
+    return '';
+  };
+  return (m.imported||[]).slice().sort((a,b)=>{
+    const av=val(a), bv=val(b);
+    if(av<bv)return -1*mult;
+    if(av>bv)return 1*mult;
+    return ((a.desc||'').localeCompare(b.desc||''))*mult;
+  });
+}
 function buildReviewHTML(m){
-  const txns=(m.imported||[]).slice().sort((a,b)=>(parseMDY(b.date)||0)-(parseMDY(a.date)||0));
+  const {sort,dir}=reviewSortState();
+  const txns=sortedReviewTxns(m);
   const lineOpts=m.groups.flatMap(g=>g.lines).filter(l=>l.type!=='in').map(l=>l.name);
-  let h=`<div class="rev-head"><span class="rv-src">Src</span><span class="rv-date">Date</span><span class="rv-desc">Description</span><span class="rv-amt">Amount</span><span class="rv-cat">Category</span></div>`;
+  const head=(key,label,cls)=>`<button class="rev-sort ${cls} ${sort===key?'on dir-'+dir:''}" data-sort="${key}">${label}</button>`;
+  let h=`<div class="rev-head">${head('src','Src','rv-src')}${head('date','Date','rv-date')}${head('desc','Description','rv-desc')}${head('amount','Amount','rv-amt')}${head('cat','Category','rv-cat')}</div>`;
   txns.forEach((t,i)=>{
-    let cat=t.cat!==undefined?t.cat:categorize(t.desc,t.source);
+    let cat=reviewCategory(t);
     let catDisplay, catClass='';
     if(t.workTravel){catDisplay='✈ work travel';catClass='rv-special';}
     else if(cat==='__INCOME__'){catDisplay='income';catClass='rv-special';}
@@ -1007,7 +1043,7 @@ function buildReviewHTML(m){
     const src=(t.source==='usbank')?'<span class="src-tag usb">USB</span>':'<span class="src-tag chs">CHS</span>';
     h+=`<div class="rev-row ${catClass}">
       <span class="rv-src">${src}</span>
-      <span class="rv-date">${(t.date||'').replace(/^(\d{4})-(\d{2})-(\d{2})/,'$2/$3')}</span>
+      <span class="rv-date">${shortDate(t.date)}</span>
       <span class="rv-desc" title="${t.desc.replace(/"/g,'&quot;')}">${t.desc}</span>
       <span class="rv-amt ${t.amount>=0?'pos':''}">${money(t.amount)}</span>
       <span class="rv-cat">${sel}</span>
@@ -1015,8 +1051,23 @@ function buildReviewHTML(m){
   });
   return h;
 }
+function shortDate(d){
+  const s=String(d||'');
+  const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(iso)return `${Number(iso[2])}/${Number(iso[3])}`;
+  const mdy=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(mdy)return `${Number(mdy[1])}/${Number(mdy[2])}`;
+  return s;
+}
 function wireReview(m,panel){
-  const txns=(m.imported||[]).slice().sort((a,b)=>(parseMDY(b.date)||0)-(parseMDY(a.date)||0));
+  panel.querySelectorAll('[data-sort]').forEach(btn=>btn.addEventListener('click',()=>{
+    const key=btn.dataset.sort;
+    panel.dataset.dir=(panel.dataset.sort===key&&panel.dataset.dir==='asc')?'desc':'asc';
+    panel.dataset.sort=key;
+    panel.innerHTML=buildReviewHTML(m);
+    wireReview(m,panel);
+  }));
+  const txns=sortedReviewTxns(m,panel);
   panel.querySelectorAll('.rv-assign').forEach(sel=>sel.addEventListener('change',()=>{
     const t=txns[+sel.dataset.idx]; if(!t)return;
     const line=sel.value;
