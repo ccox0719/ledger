@@ -459,7 +459,7 @@ function renderBudget(m){
   html+=`<div class="colhead"><span class="c-name">Item</span><span class="c-ty">Type</span><span class="c-freq">Frequency</span><span class="c-day">Day</span><span class="c-amt">Amount</span><span class="c-del"></span></div><div>`;
   m.groups.forEach(g=>{
     const gt=g.lines.reduce((a,l)=>a+(l.type==='in'?lineAmt(l):-lineAmt(l)),0);
-    html+=`<div class="group"><div class="group-head"><h2 contenteditable spellcheck="false" data-gid="${g.id}">${g.name}</h2><span class="gtot">${money(gt)}</span></div>`;
+    html+=`<div class="group"><div class="group-head"><h2 contenteditable spellcheck="false" data-gid="${g.id}">${g.name}</h2><span class="gtot" data-gtot="${g.id}">${money(gt)}</span></div>`;
     g.lines.forEach(l=>{
       const ty=t=>`<option value="${t}" ${l.type===t?'selected':''}>${t==='in'?'income':t==='xfer'?'transfer':'expense'}</option>`;
       const fq=f=>`<option value="${f}" ${(l.cadence||'monthly')===f?'selected':''}>${cadenceLabel(f)}</option>`;
@@ -479,10 +479,37 @@ function renderBudget(m){
   c.querySelectorAll('[data-tyof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.tyof);if(l){l.type=el.value;save();renderBudget(m);}}));
   c.querySelectorAll('[data-freqof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.freqof);if(l){l.cadence=el.value;save();renderBudget(m);}}));
   c.querySelectorAll('[data-dayof]').forEach(el=>el.addEventListener('input',()=>{const l=flat(m).find(x=>x.id===el.dataset.dayof);if(l){l.day=Math.min(31,Math.max(1,parseInt(el.value)||1));save();}}));
-  c.querySelectorAll('[data-budof]').forEach(el=>el.addEventListener('input',()=>{const l=flat(m).find(x=>x.id===el.dataset.budof);if(l){l.budgeted=parseFloat(el.value)||0;save();renderBudget(m);}}));
+  c.querySelectorAll('[data-budof]').forEach(el=>{
+    el.addEventListener('input',()=>{
+      const l=flat(m).find(x=>x.id===el.dataset.budof);
+      if(l){l.budgeted=parseFloat(el.value)||0;refreshBudgetTotals(m);}
+    });
+    el.addEventListener('blur',()=>save());
+    el.addEventListener('keydown',e=>{if(e.key==='Enter')el.blur();});
+  });
   c.querySelectorAll('[data-delof]').forEach(el=>el.addEventListener('click',()=>{m.groups.forEach(g=>g.lines=g.lines.filter(x=>x.id!==el.dataset.delof));save();renderBudget(m);}));
   c.querySelectorAll('[data-addto]').forEach(el=>el.addEventListener('click',()=>{const g=m.groups.find(g=>g.id===el.dataset.addto);g.lines.push({id:crypto.randomUUID(),name:'New line',budgeted:0,day:1,grp:g.name,type:'out',cadence:'monthly',paid:false,actual:null});save();renderBudget(m);}));
   document.getElementById('addGroup').addEventListener('click',()=>{m.groups.push({id:crypto.randomUUID(),name:'NEW GROUP',lines:[]});save();renderBudget(m);});
+}
+function refreshBudgetTotals(m){
+  const s=sums(m), net=s.inc-s.exp-s.xfer;
+  const pool=document.querySelector('#budgetView .pool');
+  if(pool){
+    const amt=pool.querySelector('.amt');
+    if(amt){
+      amt.textContent=money(net);
+      amt.className='amt '+(net>0.005?'pos':net<-0.005?'neg':'zero');
+    }
+    const totals=pool.querySelector('.totals');
+    if(totals)totals.innerHTML=`Income <b>${moneyS(s.inc)}</b><br>Spending <b>${moneyS(s.exp)}</b><br>Transfers <b>${moneyS(s.xfer)}</b>`;
+  }
+  (m.groups||[]).forEach(g=>{
+    const el=document.querySelector(`[data-gtot="${g.id}"]`);
+    if(el){
+      const gt=(g.lines||[]).reduce((a,l)=>a+(l.type==='in'?lineAmt(l):-lineAmt(l)),0);
+      el.textContent=money(gt);
+    }
+  });
 }
 
 // ---------- CSV IMPORT + COMPARE ----------
