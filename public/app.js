@@ -621,6 +621,37 @@ function buildActuals(m){
   });
   return {byLine,uncategorized,count:txns.length,workTravel,income,skipped};
 }
+function budgetUpdatesFromActuals(m){
+  const {byLine}=buildActuals(m);
+  return flat(m)
+    .filter(l=>l.type==='out'&&byLine[l.name]>0)
+    .map(l=>{
+      const actual=Number(byLine[l.name]||0);
+      const next=Number(actual.toFixed(2));
+      const current=Number(l.budgeted||0);
+      return {line:l,current,next,delta:next-current};
+    })
+    .filter(u=>Math.abs(u.delta)>=0.005);
+}
+async function updateBudgetFromActuals(m){
+  const updates=budgetUpdatesFromActuals(m);
+  if(!updates.length){
+    await noticeModal('Budget Already Matches',`No matched expense lines in ${monthName(cursor)} need to be updated.`);
+    return;
+  }
+  const preview=updates.slice(0,8).map(u=>`${u.line.name}: ${money(u.current)} -> ${money(u.next)}`).join('\n');
+  const more=updates.length>8?`\n...and ${updates.length-8} more line${updates.length-8===1?'':'s'}.`:'';
+  const ok=await confirmModal(
+    'Update Budget From Actuals',
+    `Update ${updates.length} expense line${updates.length===1?'':'s'} in ${monthName(cursor)} based on matched imported transactions?\n\n${preview}${more}\n\nUncategorized transactions, income, transfers, and card payments will not be changed.`,
+    {confirmText:'Update Budget'}
+  );
+  if(!ok)return;
+  updates.forEach(u=>{u.line.budgeted=u.next;});
+  save();
+  renderCompare(m);
+  await noticeModal('Budget Updated',`Updated ${updates.length} budget line${updates.length===1?'':'s'} for ${monthName(cursor)}.`);
+}
 function yearKey(){return cursor.slice(0,4);}
 function collectYearTxns(year=yearKey()){
   return Object.entries(state.months||{})
@@ -793,6 +824,7 @@ function renderCompare(m){
   html+=`<div class="import-status ${importingCSV?'on':''}"><span class="spinner"></span><span class="import-text">${importStatus}</span></div>
   <div style="display:flex;gap:8px;margin-top:12px">
     <label class="add-group csv-upload ${importingCSV?'uploading':''}" data-label="⬆ Import CSV across months" style="cursor:pointer;flex:1;text-align:center"><span class="csv-label">${importingCSV?'Working...':'⬆ Import CSV across months'}</span><input type="file" id="csvFile" accept=".csv,.CSV" style="display:none"></label>
+    <button class="add-group" id="updateBudgetFromActuals" style="flex:1">Update budget from actuals</button>
     <button class="add-group" id="clearCsv" style="flex:1">Clear all imports</button></div>`;
   c.innerHTML=html;
 
@@ -803,6 +835,8 @@ function renderCompare(m){
   });
   const csvInput=document.getElementById('csvFile');
   if(csvInput)csvInput.addEventListener('change',handleCSV);
+  const updateBtn=document.getElementById('updateBudgetFromActuals');
+  if(updateBtn)updateBtn.addEventListener('click',()=>updateBudgetFromActuals(m));
   const clearBtn=document.getElementById('clearCsv');
   if(clearBtn)clearBtn.addEventListener('click',async()=>{
     const ok=await confirmModal('Clear Imports',`Clear all imported transactions for ${monthName(cursor)}?`,{confirmText:'Clear Imports',danger:true});
