@@ -217,15 +217,87 @@ function deriveStart(m){
 function startBal(m){ const d=deriveStart(m); return d==null?0:d; }
 function hasAnchor(m){ return m.todayBalance!=null; }
 
-function openWhatIf(m){
-  const name=prompt('What-if expense — name (e.g. "New fridge", "Car repair"):');
-  if(name===null||!name.trim())return;
-  const amtStr=prompt('Amount:','0.00');
-  if(amtStr===null)return;
-  const dayStr=prompt('Day of month it would hit (1–31):','15');
-  if(dayStr===null)return;
+function openModal({title,message,fields=[],confirmText='OK',cancelText='Cancel',danger=false}){
+  return new Promise(resolve=>{
+    const root=document.getElementById('modalRoot')||document.body;
+    const backdrop=document.createElement('div');
+    backdrop.className='modal-backdrop';
+    const card=document.createElement('div');
+    card.className='modal-card';
+    const h=document.createElement('h2');
+    h.textContent=title;
+    card.appendChild(h);
+    if(message){
+      const p=document.createElement('p');
+      p.textContent=message;
+      card.appendChild(p);
+    }
+    const inputs={};
+    fields.forEach(f=>{
+      const label=document.createElement('label');
+      label.className='modal-field';
+      const span=document.createElement('span');
+      span.textContent=f.label;
+      const input=document.createElement('input');
+      input.type=f.type||'text';
+      input.value=f.value??'';
+      input.placeholder=f.placeholder||'';
+      input.step=f.step||'';
+      input.min=f.min||'';
+      input.max=f.max||'';
+      label.appendChild(span);
+      label.appendChild(input);
+      card.appendChild(label);
+      inputs[f.name]=input;
+    });
+    const actions=document.createElement('div');
+    actions.className='modal-actions';
+    const cancel=cancelText?document.createElement('button'):null;
+    if(cancel){
+      cancel.type='button';
+      cancel.textContent=cancelText;
+    }
+    const ok=document.createElement('button');
+    ok.type='button';
+    ok.className=danger?'danger':'primary';
+    ok.textContent=confirmText;
+    if(cancel)actions.appendChild(cancel);
+    actions.appendChild(ok);
+    card.appendChild(actions);
+    backdrop.appendChild(card);
+    root.appendChild(backdrop);
+    const close=value=>{backdrop.remove();resolve(value);};
+    if(cancel)cancel.addEventListener('click',()=>close(null));
+    ok.addEventListener('click',()=>{
+      const values={};
+      Object.entries(inputs).forEach(([k,input])=>{values[k]=input.value;});
+      close(fields.length?values:true);
+    });
+    backdrop.addEventListener('click',e=>{if(e.target===backdrop)close(null);});
+    backdrop.addEventListener('keydown',e=>{
+      if(e.key==='Escape')close(null);
+      if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))ok.click();
+    });
+    (Object.values(inputs)[0]||ok).focus();
+  });
+}
+const confirmModal=(title,message,opts={})=>openModal({title,message,confirmText:opts.confirmText||'Confirm',cancelText:opts.cancelText||'Cancel',danger:!!opts.danger});
+const noticeModal=(title,message)=>openModal({title,message,confirmText:'OK',cancelText:null});
+
+async function openWhatIf(m){
+  const values=await openModal({
+    title:'Add What-if Expense',
+    message:'Add a temporary expense to see how it changes cash flow.',
+    confirmText:'Add Expense',
+    fields:[
+      {name:'name',label:'Name',placeholder:'New fridge'},
+      {name:'amount',label:'Amount',type:'number',value:'0.00',step:'0.01',min:'0'},
+      {name:'day',label:'Day of month',type:'number',value:'15',min:'1',max:'31'},
+    ],
+  });
+  if(!values||!values.name.trim())return;
   if(!m.oneTime)m.oneTime=[];
-  m.oneTime.push({id:crypto.randomUUID(),name:name.trim(),amount:parseFloat(amtStr)||0,day:Math.min(31,Math.max(1,parseInt(dayStr)||1))});
+  m.oneTime.push({id:crypto.randomUUID(),name:values.name.trim(),amount:parseFloat(values.amount)||0,day:Math.min(31,Math.max(1,parseInt(values.day)||1))});
   save();renderFlow(m);
 }
 
@@ -646,7 +718,8 @@ function renderCompare(m){
   if(csvInput)csvInput.addEventListener('change',handleCSV);
   const clearBtn=document.getElementById('clearCsv');
   if(clearBtn)clearBtn.addEventListener('click',async()=>{
-    if(!confirm('Clear all imported transactions for '+monthName(cursor)+'?'))return;
+    const ok=await confirmModal('Clear Imports',`Clear all imported transactions for ${monthName(cursor)}?`,{confirmText:'Clear Imports',danger:true});
+    if(!ok)return;
     m.imported=[];
     await deleteTxns(cursor);
     save();renderCompare(m);
@@ -882,7 +955,7 @@ function handleCSV(e){
     view='compare';
     render();
     const msg=`Imported ${added} new and matched ${updated} existing ${src==='usbank'?'US Bank':'Chase'} transactions across ${touched.length} month${touched.length===1?'':'s'}${skipped?`; skipped ${skipped} rows without usable dates`:''}.`;
-    setTimeout(()=>alert(msg),0);
+    setTimeout(()=>noticeModal('Import Complete',msg),0);
   };
   reader.readAsText(file);
 }
@@ -1015,8 +1088,9 @@ function wireChrome(){
   document.getElementById('tabTravel').onclick=()=>{view='travel';render();};
   document.getElementById('prevMonth').onclick=()=>shift(-1);
   document.getElementById('nextMonth').onclick=()=>shift(1);
-  document.getElementById('resetBtn').onclick=()=>{
-    if(confirm('Reset '+monthName(cursor)+' to defaults?')){state.months[cursor]=defaultMonth();save();render();}
+  document.getElementById('resetBtn').onclick=async()=>{
+    const ok=await confirmModal('Reset Month',`Reset ${monthName(cursor)} to defaults? This replaces the budget lines for this month.`,{confirmText:'Reset Month',danger:true});
+    if(ok){state.months[cursor]=defaultMonth();save();render();}
   };
 }
 function shift(d){const[y,mo]=cursor.split('-').map(Number);cursor=monthKey(new Date(y,mo-1+d,1));render();}
