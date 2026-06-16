@@ -194,40 +194,32 @@ function ensureMonth(key, shouldSave=false){
 }
 const flat=m=>m.groups.flatMap(g=>g.lines);
 function monthNum(key=cursor){return Number(key.split('-')[1]);}
-function dueMonth(l){return Math.min(12,Math.max(1,Number(l.dueMonth)||1));}
-function cadenceDivisor(cadence){
-  if(cadence==='even'||cadence==='odd')return 2;
-  if(cadence==='quarterly')return 3;
-  if(cadence==='semiannual')return 6;
-  if(cadence==='annual')return 12;
-  return 1;
-}
 function cadenceActive(l,key=cursor){
-  if(!l.cadence||l.cadence==='monthly') return true;
+  const cadence=simpleCadence(l.cadence);
+  if(cadence==='monthly') return true;
   const month=monthNum(key);
-  if(l.cadence==='even') return month%2===0;
-  if(l.cadence==='odd') return month%2===1;
-  if(l.cadence==='quarterly') return (month-dueMonth(l)+12)%3===0;
-  if(l.cadence==='semiannual') return (month-dueMonth(l)+12)%6===0;
-  if(l.cadence==='annual') return month===dueMonth(l);
+  if(cadence==='even') return month%2===0;
+  if(cadence==='annual') return true;
   return true;
 }
-function cadenceLabel(cadence){
-  if(cadence==='even')return 'even months';
-  if(cadence==='odd')return 'odd months';
-  if(cadence==='quarterly')return 'quarterly';
-  if(cadence==='semiannual')return 'semiannual';
-  if(cadence==='annual')return 'annual';
+function simpleCadence(cadence){
+  if(cadence==='even')return 'even';
+  if(cadence&&cadence!=='monthly')return 'annual';
   return 'monthly';
 }
-function fundingLabel(mode){return mode==='smooth'?'save monthly':'pay when due';}
+function cadenceLabel(cadence){
+  cadence=simpleCadence(cadence);
+  if(cadence==='even')return 'every other';
+  if(cadence==='annual')return 'annual / 12';
+  return 'monthly';
+}
 function lineAmt(l,key=cursor){
   const raw=(l.paid&&l.actual!=null)?l.actual:(l.budgeted||0);
-  if((l.fundingMode||'due')==='smooth'&&l.type!=='in')return raw/cadenceDivisor(l.cadence);
+  if(simpleCadence(l.cadence)==='annual'&&l.type!=='in')return raw/12;
   return cadenceActive(l,key)?raw:0;
 }
 function eventDesc(l){
-  if((l.fundingMode||'due')==='smooth'&&l.cadence&&l.cadence!=='monthly'&&l.type!=='in')return `${l.name} set-aside`;
+  if(simpleCadence(l.cadence)==='annual'&&l.type!=='in')return `${l.name} monthly set-aside`;
   return l.name;
 }
 function events(m){
@@ -502,20 +494,16 @@ function renderBudget(m){
     <div class="hint">what's left over after everything clears</div></div>
     <div class="totals">Income <b>${moneyS(s.inc)}</b><br>Spending <b>${moneyS(s.exp)}</b><br>Transfers <b>${moneyS(s.xfer)}</b></div></div>`;
   html+=`<div class="src-note">Verizon is modeled as Chris/Annie's 2-phone share: $300.81 ÷ 6 phones × 2 = ${money(100.27)} per month, paid as ${money(200.54)} every other month. Enter Annie's phone stipend as income when you know the amount.</div>`;
-  html+=`<div class="colhead"><span class="c-name">Item</span><span class="c-ty">Type</span><span class="c-freq">Frequency</span><span class="c-due">Due</span><span class="c-mode">Mode</span><span class="c-day">Day</span><span class="c-amt">Amount</span><span class="c-del"></span></div><div>`;
+  html+=`<div class="colhead"><span class="c-name">Item</span><span class="c-ty">Type</span><span class="c-freq">Frequency</span><span class="c-day">Day</span><span class="c-amt">Amount</span><span class="c-del"></span></div><div>`;
   m.groups.forEach(g=>{
     const gt=g.lines.reduce((a,l)=>a+(l.type==='in'?lineAmt(l):-lineAmt(l)),0);
     html+=`<div class="group"><div class="group-head"><h2 contenteditable spellcheck="false" data-gid="${g.id}">${g.name}</h2><span class="gtot" data-gtot="${g.id}">${money(gt)}</span></div>`;
     g.lines.forEach(l=>{
       const ty=t=>`<option value="${t}" ${l.type===t?'selected':''}>${t==='in'?'income':t==='xfer'?'transfer':'expense'}</option>`;
-      const fq=f=>`<option value="${f}" ${(l.cadence||'monthly')===f?'selected':''}>${cadenceLabel(f)}</option>`;
-      const due=m=>`<option value="${m}" ${dueMonth(l)===m?'selected':''}>${MONTHS_SHORT[m-1]}</option>`;
-      const mode=v=>`<option value="${v}" ${(l.fundingMode||'due')===v?'selected':''}>${fundingLabel(v)}</option>`;
+      const fq=f=>`<option value="${f}" ${simpleCadence(l.cadence)===f?'selected':''}>${cadenceLabel(f)}</option>`;
       html+=`<div class="line"><span class="lname" contenteditable spellcheck="false" data-lid="${l.id}">${l.name}</span>
         <select class="ty" data-tyof="${l.id}">${ty('out')}${ty('in')}${ty('xfer')}</select>
-        <select class="freq" data-freqof="${l.id}">${fq('monthly')}${fq('even')}${fq('odd')}${fq('quarterly')}${fq('semiannual')}${fq('annual')}</select>
-        <select class="due" data-dueof="${l.id}">${MONTHS_SHORT.map((_,i)=>due(i+1)).join('')}</select>
-        <select class="mode" data-modeof="${l.id}">${mode('due')}${mode('smooth')}</select>
+        <select class="freq" data-freqof="${l.id}">${fq('monthly')}${fq('even')}${fq('annual')}</select>
         <input class="day" type="number" min="1" max="31" value="${l.day||1}" data-dayof="${l.id}">
         <input class="amt" type="number" step="0.01" value="${l.budgeted||''}" placeholder="0.00" data-budof="${l.id}">
         <button class="del" data-delof="${l.id}">×</button></div>`;
@@ -528,8 +516,6 @@ function renderBudget(m){
   c.querySelectorAll('[data-lid]').forEach(el=>el.addEventListener('blur',()=>{const l=flat(m).find(x=>x.id===el.dataset.lid);if(l){l.name=el.textContent.trim()||'Untitled';save();}}));
   c.querySelectorAll('[data-tyof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.tyof);if(l){l.type=el.value;save();renderBudget(m);}}));
   c.querySelectorAll('[data-freqof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.freqof);if(l){l.cadence=el.value;save();renderBudget(m);}}));
-  c.querySelectorAll('[data-dueof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.dueof);if(l){l.dueMonth=parseInt(el.value)||1;save();renderBudget(m);}}));
-  c.querySelectorAll('[data-modeof]').forEach(el=>el.addEventListener('change',()=>{const l=flat(m).find(x=>x.id===el.dataset.modeof);if(l){l.fundingMode=el.value;save();renderBudget(m);}}));
   c.querySelectorAll('[data-dayof]').forEach(el=>el.addEventListener('input',()=>{const l=flat(m).find(x=>x.id===el.dataset.dayof);if(l){l.day=Math.min(31,Math.max(1,parseInt(el.value)||1));save();}}));
   c.querySelectorAll('[data-budof]').forEach(el=>{
     el.addEventListener('input',()=>{
@@ -540,7 +526,7 @@ function renderBudget(m){
     el.addEventListener('keydown',e=>{if(e.key==='Enter')el.blur();});
   });
   c.querySelectorAll('[data-delof]').forEach(el=>el.addEventListener('click',()=>{m.groups.forEach(g=>g.lines=g.lines.filter(x=>x.id!==el.dataset.delof));save();renderBudget(m);}));
-  c.querySelectorAll('[data-addto]').forEach(el=>el.addEventListener('click',()=>{const g=m.groups.find(g=>g.id===el.dataset.addto);g.lines.push({id:crypto.randomUUID(),name:'New line',budgeted:0,day:1,grp:g.name,type:'out',cadence:'monthly',dueMonth:monthNum(),fundingMode:'due',paid:false,actual:null});save();renderBudget(m);}));
+  c.querySelectorAll('[data-addto]').forEach(el=>el.addEventListener('click',()=>{const g=m.groups.find(g=>g.id===el.dataset.addto);g.lines.push({id:crypto.randomUUID(),name:'New line',budgeted:0,day:1,grp:g.name,type:'out',cadence:'monthly',paid:false,actual:null});save();renderBudget(m);}));
   document.getElementById('addGroup').addEventListener('click',()=>{m.groups.push({id:crypto.randomUUID(),name:'NEW GROUP',lines:[]});save();renderBudget(m);});
 }
 function refreshBudgetTotals(m){
@@ -666,7 +652,7 @@ function renderYearReport(){
   const report=buildYearActuals(year);
   const rows=Object.entries(report.byLine).map(([name,actual])=>({name,actual})).sort((a,b)=>b.actual-a.actual);
   if(!report.count){
-    c.innerHTML=`<div style="text-align:center;color:var(--text-dim);font-size:.9rem;padding:30px 16px">No imported transactions for ${year} yet. Import CSV files in the Compare tab and this report will summarize the year.</div>`;
+    c.innerHTML=`<div style="text-align:center;color:var(--text-dim);font-size:.9rem;padding:30px 16px">No imported transactions for ${year} yet. Import CSV files in the Import tab and this report will summarize the year.</div>`;
     return;
   }
   const top=rows.slice(0,8);
@@ -709,7 +695,7 @@ function renderYearReport(){
   if(report.uncategorized.length){
     const total=report.uncategorized.reduce((s,t)=>s+Math.max(0,-Number(t.amount||0)),0);
     html+=`<div class="cmp-group"><div class="cmp-ghead"><span>Uncategorized</span><span>${money(total)}</span></div>
-      <div style="font-size:.74rem;color:var(--text-dim);padding:4px 4px 8px">Assign these in monthly Compare views to improve the year report.</div>`;
+      <div style="font-size:.74rem;color:var(--text-dim);padding:4px 4px 8px">Assign these in monthly Import views to improve the year report.</div>`;
     report.uncategorized.slice(0,20).forEach(t=>{
       html+=`<div class="cmp-line"><span class="cl-name">${shortDate(t.date)} · ${t.desc}</span><span class="cl-nums">${money(Math.max(0,-Number(t.amount||0)))}</span></div>`;
     });
@@ -718,33 +704,11 @@ function renderYearReport(){
   c.innerHTML=html;
 }
 
-// Travel detection: scan imported txns for travel-signal merchants, cluster by date proximity
-const TRAVEL_SIGNALS=['UNITED','DELTA','AMERICAN AIR','SOUTHWEST','FRONTIER','ALLEGIANT','HILTON','MARRIOTT','HYATT','HOTEL','AIRBNB','VRBO',
-  'WDW','DISNEY','UNIVERSAL','EPIC PARKING','EPIC ','SNOW.COM','VAIL','BRECKENRIDGE','RESORT','LIGHTNING LANE','PARKING','RENTAL CAR','HERTZ','ENTERPRISE','AVIS',
-  'MYSTIC DUNES','BUTTERBEER','OLLIVANDERS','WEASLEYS','HULK','MAGIC CASTLE','MAGICAL MENAGE','WIZARDING','PLTPAYWEB','KTA WEB','UNIV PARKING','TUTTO ITALIA'];
-function looksTravel(desc){
-  const D=desc.toUpperCase();
-  return TRAVEL_SIGNALS.some(s=>D.includes(s));
-}
 function parseMDY(s){
   s=(s||'').trim();
   if(/^\d{4}-\d{2}-\d{2}/.test(s)){const p=s.split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
   const p=s.split('/');if(p.length<3)return null;return new Date(+p[2],+p[0]-1,+p[1]);
 }
-function detectTripClusters(m){
-  const flagged=(m.imported||[]).filter(t=>looksTravel(t.desc)&&t.type!=='Payment'&&t.amount<0)
-    .map(t=>({...t,d:parseMDY(t.date)})).filter(t=>t.d).sort((a,b)=>a.d-b.d);
-  const clusters=[]; let cur=[];
-  for(const t of flagged){
-    if(!cur.length){cur=[t];continue;}
-    const gap=(t.d-cur[cur.length-1].d)/86400000;
-    if(gap<=4){cur.push(t);} else {clusters.push(cur);cur=[t];}
-  }
-  if(cur.length)clusters.push(cur);
-  return clusters.filter(c=>c.length>=3||c.reduce((s,t)=>s+(-t.amount),0)>200)
-    .map(c=>({start:c[0].d,end:c[c.length-1].d,total:c.reduce((s,t)=>s+(-t.amount),0),count:c.length,txns:c}));
-}
-function fmtDate(d){return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});}
 
 function renderCompare(m){
   const c=document.getElementById('compareView');
@@ -752,7 +716,7 @@ function renderCompare(m){
   if(!txns.length){
     c.innerHTML=`<div style="text-align:center;padding:30px 16px">
       <div style="font-size:.9rem;color:var(--text-dim);margin-bottom:16px;line-height:1.6">
-        Upload Chase card or US Bank checking CSVs to compare actual spending against your budget.<br>
+        Upload Chase card or US Bank checking CSVs to review actual spending against your budget.<br>
         Files may include multiple months; transactions will be placed in the right month automatically.</div>
       <label class="add-group csv-upload ${importingCSV?'uploading':''}" data-label="⬆ Choose CSV file" style="cursor:pointer;display:inline-block;max-width:280px">
         <span class="csv-label">${importingCSV?'Working...':'⬆ Choose CSV file'}</span>
@@ -763,7 +727,6 @@ function renderCompare(m){
     return;
   }
   const {byLine,uncategorized,workTravel,income,skipped}=buildActuals(m);
-  const trips=detectTripClusters(m);
   // Build comparison: for each budget line that's an expense, show budgeted vs actual
   const groups=m.groups.map(g=>{
     const lines=g.lines.filter(l=>l.type!=='in').map(l=>{
@@ -785,27 +748,6 @@ function renderCompare(m){
 
   if(workTravel>0){
     html+=`<div class="travel-note">↩ ${money(workTravel)} tagged as work travel — netted out of spending (reimbursable).</div>`;
-  }
-
-  // Trip detection banner — cross-reference logged trips
-  if(trips.length){
-    html+=`<div class="trip-banner"><div class="tb-head">✈ Possible trips detected</div>`;
-    trips.forEach((tr,ti)=>{
-      // does this cluster fall within a logged trip?
-      const logged=getTrips().find(lt=>{
-        if(!lt.start)return false;
-        const s=new Date(lt.start+'T00:00'), e=new Date((lt.end||lt.start)+'T00:00');
-        return tr.start<=e && tr.end>=s; // overlap
-      });
-      const match = logged?`<span class="tb-match ${logged.kind}">↳ ${logged.name} (${logged.kind})</span>`:'';
-      html+=`<div class="trip-row">
-        <div class="trip-info"><b>${fmtDate(tr.start)} – ${fmtDate(tr.end)}</b> · ${tr.count} charges · ${money(tr.total)} ${match}</div>
-        <div class="trip-actions">
-          <button class="tb-btn" data-trip="${ti}" data-as="Vacation">Tag vacation</button>
-          <button class="tb-btn work" data-trip="${ti}" data-as="work">Tag work (reimburse)</button>
-        </div></div>`;
-    });
-    html+=`<div class="tb-hint">Tagging assigns every charge in the window. Work travel nets out of spending; vacation goes to your Travel → Vacation line. Log trips in the Travel tab to auto-match.</div></div>`;
   }
 
   html+=`<div class="cmp-bar-head"><span>Category</span><span>Budget → Actual</span></div>`;
@@ -844,19 +786,6 @@ function renderCompare(m){
   if(skipped>0)html+=` · ${moneyS(skipped)} transfers/fees skipped`;
   html+=`</div>`;
 
-  // If Chase card data present, compute net card charges and offer to set the Credit Card Payment line
-  const cardTxns=(m.imported||[]).filter(t=>(t.source||'chase')==='chase'&&t.type!=='Payment');
-  if(cardTxns.length){
-    const cardNet=cardTxns.reduce((s,t)=>s-t.amount,0); // positive = net charged this month
-    const ccLine=flat(m).find(l=>l.name==='Credit Card Payment');
-    const cur=ccLine?ccLine.budgeted:0;
-    html+=`<div class="cc-suggest">
-      <div>Card charges imported this month: <b>${money(cardNet)}</b><br>
-      <span class="cc-sub">This is what'll hit checking when you pay the card. Currently your Credit Card Payment line is set to ${money(cur)}.</span></div>
-      <button class="cc-btn" id="setCCPay" data-amt="${cardNet.toFixed(2)}">Set payment → ${money(cardNet)}</button>
-    </div>`;
-  }
-
   // Review-all panel (collapsed by default)
   html+=`<button class="add-group" id="toggleReview" style="margin-top:14px">🔍 Review all parsed transactions (${(m.imported||[]).length})</button>
     <div id="reviewPanel" style="display:none"></div>`;
@@ -872,11 +801,6 @@ function renderCompare(m){
     if(p.style.display==='none'){ p.innerHTML=buildReviewHTML(m); p.style.display=''; wireReview(m,p); }
     else p.style.display='none';
   });
-  const ccBtn=document.getElementById('setCCPay');
-  if(ccBtn)ccBtn.addEventListener('click',()=>{
-    const ccLine=flat(m).find(l=>l.name==='Credit Card Payment');
-    if(ccLine){ ccLine.budgeted=parseFloat(ccBtn.dataset.amt)||0; save(); renderCompare(m); }
-  });
   const csvInput=document.getElementById('csvFile');
   if(csvInput)csvInput.addEventListener('change',handleCSV);
   const clearBtn=document.getElementById('clearCsv');
@@ -887,17 +811,6 @@ function renderCompare(m){
     await deleteTxns(cursor);
     save();renderCompare(m);
   });
-  // Trip tagging
-  c.querySelectorAll('.tb-btn').forEach(btn=>btn.addEventListener('click',()=>{
-    const tr=trips[+btn.dataset.trip], as=btn.dataset.as;
-    tr.txns.forEach(tx=>{
-      const orig=(m.imported||[]).find(t=>t.desc===tx.desc&&t.date===tx.date&&t.amount===tx.amount);
-      if(!orig)return;
-      if(as==='work'){ orig.workTravel=true; orig.cat=undefined; }
-      else { orig.cat='Vacation'; orig.workTravel=false; }
-    });
-    save();renderCompare(m);
-  }));
   c.querySelectorAll('.cl-assign').forEach(sel=>sel.addEventListener('change',()=>{
     const desc=decodeURIComponent(sel.dataset.desc), line=sel.value;
     if(!line)return;
@@ -1058,18 +971,16 @@ function normalizeBudgetTemplate(){
           day:el?.day||tl.day,
           grp:tg.name,
           type:el?.type||tl.type,
-          cadence:el?.cadence||tl.cadence||'monthly',
-          dueMonth:el?.dueMonth||tl.dueMonth||1,
-          fundingMode:el?.fundingMode||tl.fundingMode||'due',
+          cadence:simpleCadence(el?.cadence||tl.cadence),
           paid:el?.paid||false,
           actual:el?.actual??null,
         });
         if(!el) changed=true;
-        else if(el.name!==tl.name||el.grp!==tg.name||!el.cadence||!el.dueMonth||!el.fundingMode) changed=true;
+        else if(el.name!==tl.name||el.grp!==tg.name||el.cadence!==simpleCadence(el.cadence)) changed=true;
       }
       for(const el of eg.lines||[]){
         if(!used.has(el.id)&&!/^Retirement Fund( \(\d+\))?$/.test(el.name||'')){
-          nextLines.push({...el,grp:tg.name,cadence:el.cadence||'monthly',dueMonth:el.dueMonth||1,fundingMode:el.fundingMode||'due'});
+          nextLines.push({...el,grp:tg.name,cadence:simpleCadence(el.cadence)});
         } else if(/^Retirement Fund( \(\d+\))?$/.test(el.name||'')&&!nextLines.some(l=>l.id===el.id)){
           changed=true;
         }
