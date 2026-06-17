@@ -28,7 +28,7 @@ function defaultMonth(){
         I('Annie Phone Stipend',0,15),
       ]},
       {id:crypto.randomUUID(),name:'CHARITABLE',lines:[
-        E('Giving',100,1),E('Tithe',1060,6),E('Compassion',50,15),
+        E('Tithe',1060,6),E('Compassion',50,15),
       ]},
       {id:crypto.randomUUID(),name:'SAVINGS / TRANSFERS',lines:[
         X('Retirement Fund',2000,2),
@@ -82,7 +82,7 @@ function defaultRules(){
     ['STEAM','Entertainment'],['XBOX','Entertainment'],['MICROSOFT*XBOX','Entertainment'],['SNOW.COM','Entertainment'],['VAIL RESORT','Entertainment'],['STEAMGAMES','Entertainment'],
     // Charitable / giving
     ['COMPASSION','Compassion'],['LAKEANN','Lake Ann'],['LAKE ANN','Lake Ann'],
-    ['KEYSTONE CHURCH','Tithe'],['FIRST FAMILY CHURCH','Tithe'],['CHRISTIANBOOK','Giving'],
+    ['KEYSTONE CHURCH','Tithe'],['FIRST FAMILY CHURCH','Tithe'],
     // Insurance / utilities
     ['USAA','Life Insurance'],['VERIZON','Verizon (2 phones)'],['METRO NET','Metro Net'],
     // Gas / transportation
@@ -114,6 +114,61 @@ function defaultRules(){
 }
 function getRules(){ if(!state.rules)state.rules=defaultRules().map(r=>[r[0],r[1],'chase']); return state.rules; }
 function getTrips(){ if(!state.trips)state.trips=[]; return state.trips; }
+
+const RULE_STOP_WORDS=new Set([
+  'POS','DEBIT','CREDIT','CARD','PURCHASE','AUTH','AUTHORIZATION','RECURRING','PAYMENT','WEB','ONLINE',
+  'WITHDRAWAL','ELECTRONIC','TRANSACTION','MOBILE','BANKING','TRANSFER','CHECKCARD','CHECK','ACH',
+  'TST','SQ','SP','THE','AND','INC','LLC','CO','COMPANY','STORE','PAYPAL','VENMO',
+]);
+const STATE_TOKENS=new Set(['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC']);
+
+function normalizedRuleText(desc){
+  return String(desc||'')
+    .replace(/&amp;/gi,'&')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function learnedRuleKeyword(desc){
+  const words=normalizedRuleText(desc).split(' ').filter(Boolean);
+  const useful=words.filter(w=>{
+    if(/^\d+$/.test(w))return false;
+    if(/^\d+[A-Z]*$/.test(w))return false;
+    if(STATE_TOKENS.has(w))return false;
+    if(RULE_STOP_WORDS.has(w))return false;
+    return w.length>=3||['QT','WM'].includes(w);
+  });
+  return (useful.slice(0,4).join(' ')||words.find(w=>w.length>=3)||normalizedRuleText(desc)).trim();
+}
+function ruleMatches(desc,kw){
+  const raw=String(desc||'').toUpperCase();
+  const key=String(kw||'').toUpperCase().trim();
+  if(!key)return false;
+  return raw.includes(key)||normalizedRuleText(desc).includes(normalizedRuleText(key));
+}
+function learnCategoryRule(desc,line,source){
+  const kw=learnedRuleKeyword(desc);
+  if(!kw||!line)return null;
+  const src=source||'chase';
+  const rules=getRules();
+  const sameRule=rules.find(r=>String(r[0]||'').toUpperCase()===kw&&String(r[2]||'chase')===src);
+  if(sameRule){
+    sameRule[1]=line;
+    rules.splice(rules.indexOf(sameRule),1);
+    rules.unshift(sameRule);
+  } else {
+    state.rules=rules.filter(r=>!(String(r[2]||'chase')===src&&String(r[0]||'').toUpperCase()===kw));
+    state.rules.unshift([kw,line,src]);
+  }
+  return kw;
+}
+function applyRuleToImported(rows,kw,line,source){
+  const src=source||'chase';
+  for(const t of rows||[]){
+    if((t.source||'chase')===src&&ruleMatches(t.desc,kw)) t.cat=line;
+  }
+}
 
 function setImportStatus(message){
   importingCSV=!!message;
@@ -597,12 +652,12 @@ function categorize(desc, source){
     // hardcoded checking rules + any persisted user rules tagged 'usbank'
     const userUsbank=(getRules()||[]).filter(r=>r[2]==='usbank');
     const rules=[...checkingRules(),...userUsbank].sort((a,b)=>b[0].length-a[0].length);
-    for(const [kw,line] of rules){ if(D.includes(kw.toUpperCase())) return line; }
+    for(const [kw,line] of rules){ if(ruleMatches(desc,kw)) return line; }
     return null;
   }
   // Chase: only rules tagged 'chase' (or untagged legacy)
   const rules=[...getRules()].filter(r=>!r[2]||r[2]==='chase').sort((a,b)=>b[0].length-a[0].length);
-  for(const [kw,line] of rules){ if(D.includes(kw.toUpperCase())) return line; }
+  for(const [kw,line] of rules){ if(ruleMatches(desc,kw)) return line; }
   return null;
 }
 // Aggregate imported transactions for the current month into actual spend per budget line
@@ -621,36 +676,18 @@ function buildActuals(m){
   });
   return {byLine,uncategorized,count:txns.length,workTravel,income,skipped};
 }
-function budgetUpdatesFromActuals(m){
+async function updateBudgetLineFromActuals(m,lineId){
+  const line=flat(m).find(l=>l.id===lineId);
+  if(!line)return;
   const {byLine}=buildActuals(m);
-  return flat(m)
-    .filter(l=>l.type==='out'&&byLine[l.name]>0)
-    .map(l=>{
-      const actual=Number(byLine[l.name]||0);
-      const next=Number(actual.toFixed(2));
-      const current=Number(l.budgeted||0);
-      return {line:l,current,next,delta:next-current};
-    })
-    .filter(u=>Math.abs(u.delta)>=0.005);
-}
-async function updateBudgetFromActuals(m){
-  const updates=budgetUpdatesFromActuals(m);
-  if(!updates.length){
-    await noticeModal('Budget Already Matches',`No matched expense lines in ${monthName(cursor)} need to be updated.`);
+  const actual=Number(byLine[line.name]||0);
+  if(line.type!=='out'||actual<=0){
+    await noticeModal('No Actuals Found',`No matched expense transactions were found for ${line.name} in ${monthName(cursor)}.`);
     return;
   }
-  const preview=updates.slice(0,8).map(u=>`${u.line.name}: ${money(u.current)} -> ${money(u.next)}`).join('\n');
-  const more=updates.length>8?`\n...and ${updates.length-8} more line${updates.length-8===1?'':'s'}.`:'';
-  const ok=await confirmModal(
-    'Update Budget From Actuals',
-    `Update ${updates.length} expense line${updates.length===1?'':'s'} in ${monthName(cursor)} based on matched imported transactions?\n\n${preview}${more}\n\nUncategorized transactions, income, transfers, and card payments will not be changed.`,
-    {confirmText:'Update Budget'}
-  );
-  if(!ok)return;
-  updates.forEach(u=>{u.line.budgeted=u.next;});
+  line.budgeted=Number(actual.toFixed(2));
   save();
   renderCompare(m);
-  await noticeModal('Budget Updated',`Updated ${updates.length} budget line${updates.length===1?'':'s'} for ${monthName(cursor)}.`);
 }
 function yearKey(){return cursor.slice(0,4);}
 function collectYearTxns(year=yearKey()){
@@ -763,7 +800,7 @@ function renderCompare(m){
     const lines=g.lines.filter(l=>l.type!=='in').map(l=>{
       const actual=byLine[l.name]||0;
       const budgeted=lineAmt(l);
-      return {name:l.name,budgeted,actual,delta:budgeted-actual};
+      return {id:l.id,name:l.name,type:l.type,budgeted,actual,delta:budgeted-actual};
     }).filter(l=>l.budgeted>0||l.actual>0);
     const gb=lines.reduce((s,l)=>s+l.budgeted,0), ga=lines.reduce((s,l)=>s+l.actual,0);
     return {name:g.name,lines,gb,ga};
@@ -789,10 +826,12 @@ function renderCompare(m){
     g.lines.forEach(l=>{
       const pct=l.budgeted>0?Math.min(100,(l.actual/l.budgeted)*100):(l.actual>0?100:0);
       const lo=l.actual>l.budgeted;
+      const canUpdate=l.type==='out'&&l.actual>0&&Math.abs(l.actual-l.budgeted)>=0.005;
       html+=`<div class="cmp-line">
         <span class="cl-name">${l.name}</span>
         <div class="cl-track"><div class="cl-fill" style="width:${pct}%;background:${lo?'var(--red)':'var(--amber)'}"></div></div>
         <span class="cl-nums ${lo?'over':''}">${money(l.actual)} / ${money(l.budgeted)}</span>
+        ${canUpdate?`<button class="cl-update" data-line-id="${l.id}">Update</button>`:'<span class="cl-update-spacer"></span>'}
       </div>`;
     });
     html+=`</div>`;
@@ -824,7 +863,6 @@ function renderCompare(m){
   html+=`<div class="import-status ${importingCSV?'on':''}"><span class="spinner"></span><span class="import-text">${importStatus}</span></div>
   <div style="display:flex;gap:8px;margin-top:12px">
     <label class="add-group csv-upload ${importingCSV?'uploading':''}" data-label="⬆ Import CSV across months" style="cursor:pointer;flex:1;text-align:center"><span class="csv-label">${importingCSV?'Working...':'⬆ Import CSV across months'}</span><input type="file" id="csvFile" accept=".csv,.CSV" style="display:none"></label>
-    <button class="add-group" id="updateBudgetFromActuals" style="flex:1">Update budget from actuals</button>
     <button class="add-group" id="clearCsv" style="flex:1">Clear all imports</button></div>`;
   c.innerHTML=html;
 
@@ -835,8 +873,6 @@ function renderCompare(m){
   });
   const csvInput=document.getElementById('csvFile');
   if(csvInput)csvInput.addEventListener('change',handleCSV);
-  const updateBtn=document.getElementById('updateBudgetFromActuals');
-  if(updateBtn)updateBtn.addEventListener('click',()=>updateBudgetFromActuals(m));
   const clearBtn=document.getElementById('clearCsv');
   if(clearBtn)clearBtn.addEventListener('click',async()=>{
     const ok=await confirmModal('Clear Imports',`Clear all imported transactions for ${monthName(cursor)}?`,{confirmText:'Clear Imports',danger:true});
@@ -848,14 +884,13 @@ function renderCompare(m){
   c.querySelectorAll('.cl-assign').forEach(sel=>sel.addEventListener('change',()=>{
     const desc=decodeURIComponent(sel.dataset.desc), line=sel.value;
     if(!line)return;
-    const kw=desc.toUpperCase().replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=4)[0]||desc.toUpperCase();
-    // tag rule with the source of the matching transaction(s)
     const match=(m.imported||[]).find(t=>t.desc===desc);
     const src=match?(match.source||'chase'):'chase';
-    getRules().unshift([kw,line,src]);
-    (m.imported||[]).forEach(t=>{ if(t.desc.toUpperCase().includes(kw)) t.cat=line; });
+    const kw=learnCategoryRule(desc,line,src);
+    applyRuleToImported(m.imported,kw,line,src);
     save();renderCompare(m);
   }));
+  c.querySelectorAll('.cl-update').forEach(btn=>btn.addEventListener('click',()=>updateBudgetLineFromActuals(m,btn.dataset.lineId)));
 }
 
 function txnMonthKey(dateStr){
@@ -971,6 +1006,18 @@ function normalizePhoneLines(){
         line.cadence='even';
         changed=true;
       }
+    }
+  }
+  return changed;
+}
+function normalizeRemovedBudgetLines(){
+  let changed=false;
+  const removed=new Set(['Giving']);
+  for(const m of Object.values(state.months||{})){
+    for(const g of m.groups||[]){
+      const before=(g.lines||[]).length;
+      g.lines=(g.lines||[]).filter(l=>!removed.has(l.name));
+      if(g.lines.length!==before) changed=true;
     }
   }
   return changed;
@@ -1103,6 +1150,33 @@ function reviewCategoryLabel(t){
   if(cat==='__SKIP__')return 'transfer/fee';
   return cat||'none';
 }
+function txDate(tx){
+  return tx.d||parseMDY(tx.date);
+}
+function tripForTxn(tx,trips=getTrips()){
+  const d=txDate(tx);
+  if(!d)return null;
+  return trips.find(t=>{
+    if(!t.start)return false;
+    const s=new Date(t.start+'T00:00');
+    const e=new Date((t.end||t.start)+'T00:00');
+    return d>=s&&d<=e;
+  })||null;
+}
+function isTravelCandidate(tx,trips=getTrips()){
+  const cat=reviewCategory(tx);
+  if(tx.workTravel||cat==='Vacation')return false;
+  if(['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat))return false;
+  if(tx.type==='Payment'||Number(tx.amount)>=0)return false;
+  return !!tripForTxn(tx,trips);
+}
+function travelCandidateTxns(year=yearKey()){
+  const trips=getTrips();
+  return collectYearTxns(year)
+    .map(t=>({...t,d:parseMDY(t.date)}))
+    .filter(t=>isTravelCandidate(t,trips))
+    .sort((a,b)=>(a.d||0)-(b.d||0));
+}
 function sortedReviewTxns(m,panel=document.getElementById('reviewPanel')){
   const {sort,dir}=reviewSortState(panel);
   const mult=dir==='asc'?1:-1;
@@ -1136,15 +1210,19 @@ function buildReviewHTML(m){
     else if(cat==='__SKIP__'){catDisplay='transfer/fee';catClass='rv-special';}
     else if(!cat){catDisplay='— none —';catClass='rv-none';}
     else catDisplay=cat;
+    const trip=tripForTxn(t);
+    const travelCandidate=isTravelCandidate(t);
+    const tripClass=travelCandidate?` rv-trip rv-trip-${trip.kind==='work'?'work':'personal'}`:'';
+    const tripChip=travelCandidate?`<span class="rv-trip-chip ${trip.kind==='work'?'work':'personal'}">${trip.kind==='work'?'work trip':'trip'}</span>`:'';
     const editable = !(t.workTravel||['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat));
     const sel = editable
       ? `<select class="rv-assign" data-idx="${i}"><option value="">${catDisplay}</option>${lineOpts.map(o=>`<option value="${o}" ${o===cat?'selected':''}>${o}</option>`).join('')}</select>`
       : `<span class="rv-fixed ${catClass}">${catDisplay}</span>`;
     const src=(t.source==='usbank')?'<span class="src-tag usb">USB</span>':'<span class="src-tag chs">CHS</span>';
-    h+=`<div class="rev-row ${catClass}">
+    h+=`<div class="rev-row ${catClass}${tripClass}">
       <span class="rv-src">${src}</span>
       <span class="rv-date">${shortDate(t.date)}</span>
-      <span class="rv-desc" title="${t.desc.replace(/"/g,'&quot;')}">${t.desc}</span>
+      <span class="rv-desc" title="${t.desc.replace(/"/g,'&quot;')}${trip?` · ${trip.name||trip.kind}`:''}">${tripChip}${t.desc}</span>
       <span class="rv-amt ${t.amount>=0?'pos':''}">${money(t.amount)}</span>
       <span class="rv-cat">${sel}</span>
     </div>`;
@@ -1169,15 +1247,6 @@ function taggedTravelTxns(year=yearKey()){
     .map(t=>({...t,d:parseMDY(t.date)}))
     .sort((a,b)=>(a.d||0)-(b.d||0));
 }
-function tripForTxn(tx,trips=getTrips()){
-  if(!tx.d)return null;
-  return trips.find(t=>{
-    if(!t.start)return false;
-    const s=new Date(t.start+'T00:00');
-    const e=new Date((t.end||t.start)+'T00:00');
-    return tx.d>=s&&tx.d<=e;
-  })||null;
-}
 function wireReview(m,panel){
   panel.querySelectorAll('[data-sort]').forEach(btn=>btn.addEventListener('click',()=>{
     const key=btn.dataset.sort;
@@ -1192,7 +1261,13 @@ function wireReview(m,panel){
     const line=sel.value;
     // find the real object in m.imported and tag it
     const real=(m.imported||[]).find(x=>x.desc===t.desc&&x.date===t.date&&x.amount===t.amount&&(x.source||'')===(t.source||''));
-    if(real){ real.cat=line||undefined; }
+    if(real){
+      if(line){
+        const src=real.source||'chase';
+        const kw=learnCategoryRule(real.desc,line,src);
+        applyRuleToImported(m.imported,kw,line,src);
+      } else real.cat=undefined;
+    }
     save();
     // refresh both the panel and the comparison above
     renderCompare(m);
@@ -1245,6 +1320,30 @@ function renderTravel(m){
     html+=`</div>`;
   }
   const tagged=taggedTravelTxns(yearKey());
+  const candidates=travelCandidateTxns(yearKey());
+  html+=`<div class="travel-review"><h2>Possible Travel Transactions</h2>`;
+  if(!trips.length){
+    html+=`<div class="src-note">Add a trip to highlight imported charges that fall inside the trip dates.</div>`;
+  } else if(!candidates.length){
+    html+=`<div class="src-note">No untagged imported charges currently fall inside a logged trip range for ${yearKey()}.</div>`;
+  } else {
+    html+=`<div class="src-note">${candidates.length} imported charge${candidates.length===1?'':'s'} fall inside logged trip dates. Mark personal trip spending as Vacation or work trip charges as reimbursable.</div>`;
+    candidates.forEach((tx,i)=>{
+      const trip=tripForTxn(tx,trips);
+      const tripKind=trip?.kind==='work'?'work':'personal';
+      html+=`<div class="travel-txn candidate ${tripKind}">
+        <span class="tt-date">${shortDate(tx.date)}</span>
+        <span class="tt-desc" title="${(tx.desc||'').replace(/"/g,'&quot;')}">[${trip?.name||tripKind}] ${tx.desc||''}</span>
+        <span class="tt-amt">${money(Math.abs(Number(tx.amount)||0))}</span>
+        <span class="tt-actions">
+          <button data-candidate-idx="${i}" data-travel-as="vacation">Vacation</button>
+          <button class="work" data-candidate-idx="${i}" data-travel-as="work">Work reimb.</button>
+        </span>
+      </div>`;
+    });
+  }
+  html+=`</div>`;
+
   html+=`<div class="travel-review"><h2>Tagged Travel Transactions</h2>`;
   if(!tagged.length){
     html+=`<div class="src-note">No imported transactions are currently tagged as vacation or work reimbursement for ${yearKey()}.</div>`;
@@ -1284,19 +1383,29 @@ function renderTravel(m){
   }));
   // Inline edits to existing trips
   c.querySelectorAll('[data-edit-name]').forEach(el=>el.addEventListener('blur',()=>{
-    const t=getTrips().find(x=>x.id===el.dataset.editName);if(t){t.name=el.value.trim();save();}
+    const t=getTrips().find(x=>x.id===el.dataset.editName);if(t){t.name=el.value.trim();save();renderTravel(m);}
   }));
   c.querySelectorAll('[data-edit-start]').forEach(el=>el.addEventListener('change',()=>{
-    const t=getTrips().find(x=>x.id===el.dataset.editStart);if(t){t.start=el.value;save();}
+    const t=getTrips().find(x=>x.id===el.dataset.editStart);if(t){t.start=el.value;save();renderTravel(m);}
   }));
   c.querySelectorAll('[data-edit-end]').forEach(el=>el.addEventListener('change',()=>{
-    const t=getTrips().find(x=>x.id===el.dataset.editEnd);if(t){t.end=el.value;save();}
+    const t=getTrips().find(x=>x.id===el.dataset.editEnd);if(t){t.end=el.value;save();renderTravel(m);}
   }));
   c.querySelectorAll('[data-edit-kind]').forEach(b=>b.addEventListener('click',()=>{
     const t=getTrips().find(x=>x.id===b.dataset.editKind);if(t){t.kind=b.dataset.k;save();renderTravel(m);}
   }));
   c.querySelectorAll('[data-travel-idx]').forEach(b=>b.addEventListener('click',()=>{
     const tx=tagged[+b.dataset.travelIdx];
+    const real=findTxnRef(tx);
+    if(!real)return;
+    if(b.dataset.travelAs==='work'){real.workTravel=true;real.cat=undefined;}
+    else if(b.dataset.travelAs==='vacation'){real.workTravel=false;real.cat='Vacation';}
+    else {real.workTravel=false;real.cat=undefined;}
+    save();
+    renderTravel(m);
+  }));
+  c.querySelectorAll('[data-candidate-idx]').forEach(b=>b.addEventListener('click',()=>{
+    const tx=candidates[+b.dataset.candidateIdx];
     const real=findTxnRef(tx);
     if(!real)return;
     if(b.dataset.travelAs==='work'){real.workTravel=true;real.cat=undefined;}
@@ -1351,8 +1460,9 @@ async function startApp(){
     const changedBudgetTemplate=normalizeBudgetTemplate();
     const changedRetirementLines=normalizeRetirementFundLines();
     const changedPhoneLines=normalizePhoneLines();
+    const changedRemovedBudgetLines=normalizeRemovedBudgetLines();
     if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
-    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines) save();
+    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines||changedRemovedBudgetLines) save();
     // seed defaults for the current month if missing or if a partial DB row exists
     // without the budget template.
     ensureMonth(cursor,true);
