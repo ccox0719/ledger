@@ -288,6 +288,12 @@ function events(m){
 function endingBalance(m){let b=startBal(m);events(m).forEach(e=>b+=e.delta);return b;}
 function lowPoint(m){let b=startBal(m),low={bal:b,idx:-1};events(m).forEach((e,i)=>{b+=e.delta;if(b<low.bal)low={bal:b,idx:i};});return low;}
 function sums(m){let inc=0,exp=0,xfer=0;flat(m).forEach(l=>{const a=lineAmt(l);if(l.type==='in')inc+=a;else if(l.type==='xfer')xfer+=a;else exp+=a;});return{inc,exp,xfer};}
+function lineTypeFor(m,lineName){
+  return flat(m||{groups:[]}).find(l=>l.name===lineName)?.type;
+}
+function lineTypeForTxn(t,lineName){
+  return lineTypeFor(state.months?.[t.month],lineName);
+}
 
 // Today's day-of-month, but only if the viewed month is the actual current month
 function todayDayFor(cursorKey){
@@ -663,7 +669,7 @@ function categorize(desc, source){
 // Aggregate imported transactions for the current month into actual spend per budget line
 function buildActuals(m){
   const txns=(m.imported||[]);
-  const byLine={}; const uncategorized=[]; let workTravel=0, income=0, skipped=0;
+  const byLine={}; const uncategorized=[]; let workTravel=0, income=0, skipped=0, transfers=0;
   txns.forEach(t=>{
     if(t.type==='Payment') return;
     const spend=-t.amount;
@@ -672,9 +678,10 @@ function buildActuals(m){
     if(line==='__INCOME__'){ income+=t.amount; return; }
     if(line==='__CARDPAY__'||line==='__SKIP__'){ skipped+=spend; return; }
     if(!line){ uncategorized.push(t); return; }
+    if(lineTypeFor(m,line)==='xfer'){ transfers+=spend; return; }
     byLine[line]=(byLine[line]||0)+spend;
   });
-  return {byLine,uncategorized,count:txns.length,workTravel,income,skipped};
+  return {byLine,uncategorized,count:txns.length,workTravel,income,skipped,transfers};
 }
 async function updateBudgetLineFromActuals(m,lineId){
   const line=flat(m).find(l=>l.id===lineId);
@@ -697,7 +704,7 @@ function collectYearTxns(year=yearKey()){
 }
 function buildYearActuals(year=yearKey()){
   const byLine={}, uncategorized=[], byMonth={}, bySource={};
-  let workTravel=0, income=0, skipped=0, spending=0;
+  let workTravel=0, income=0, skipped=0, transfers=0, spending=0;
   collectYearTxns(year).forEach(t=>{
     const source=t.source||'chase';
     bySource[source]=(bySource[source]||0)+1;
@@ -707,12 +714,13 @@ function buildYearActuals(year=yearKey()){
     if(line==='__CARDPAY__'||line==='__SKIP__'){skipped+=Math.abs(t.amount||0);return;}
     const spend=-(Number(t.amount)||0);
     if(spend<=0)return;
+    if(line&&lineTypeForTxn(t,line)==='xfer'){transfers+=spend;return;}
     spending+=spend;
     byMonth[t.month]=(byMonth[t.month]||0)+spend;
     if(!line){uncategorized.push(t);return;}
     byLine[line]=(byLine[line]||0)+spend;
   });
-  return {byLine,uncategorized,byMonth,bySource,workTravel,income,skipped,spending,count:collectYearTxns(year).length};
+  return {byLine,uncategorized,byMonth,bySource,workTravel,income,skipped,transfers,spending,count:collectYearTxns(year).length};
 }
 function renderYearReport(){
   const c=document.getElementById('yearView');
@@ -729,7 +737,7 @@ function renderYearReport(){
     <div class="cmp-stat"><div class="k">Transactions</div><div class="v">${report.count}</div></div>
     <div class="cmp-stat"><div class="k">Uncategorized</div><div class="v" style="color:${report.uncategorized.length?'var(--red)':'var(--mint)'}">${report.uncategorized.length}</div></div>
   </div>`;
-  html+=`<div class="src-note">Year report uses imported transactions from all ${year} months. Work travel (${moneyS(report.workTravel)}) and transfers/fees (${moneyS(report.skipped)}) are excluded from spending.</div>`;
+  html+=`<div class="src-note">Year report uses imported transactions from all ${year} months. Work travel (${moneyS(report.workTravel)}), savings transfers (${moneyS(report.transfers)}), and transfers/fees (${moneyS(report.skipped)}) are excluded from spending.</div>`;
   if(top.length){
     html+=`<div class="cmp-group"><div class="cmp-ghead"><span>Top Categories</span><span>${money(report.spending)}</span></div>`;
     top.forEach(r=>{
@@ -794,10 +802,10 @@ function renderCompare(m){
     document.getElementById('csvFile').addEventListener('change',handleCSV);
     return;
   }
-  const {byLine,uncategorized,workTravel,income,skipped}=buildActuals(m);
-  // Build comparison: for each budget line that's an expense, show budgeted vs actual
+  const {byLine,uncategorized,workTravel,income,skipped,transfers}=buildActuals(m);
+  // Build comparison for expense lines only. Transfers affect cash flow, not spending.
   const groups=m.groups.map(g=>{
-    const lines=g.lines.filter(l=>l.type!=='in').map(l=>{
+    const lines=g.lines.filter(l=>l.type==='out').map(l=>{
       const actual=byLine[l.name]||0;
       const budgeted=lineAmt(l);
       return {id:l.id,name:l.name,type:l.type,budgeted,actual,delta:budgeted-actual};
@@ -809,13 +817,16 @@ function renderCompare(m){
   const totalBud=groups.reduce((s,g)=>s+g.gb,0), totalAct=groups.reduce((s,g)=>s+g.ga,0);
 
   let html=`<div class="cmp-summary">
-    <div class="cmp-stat"><div class="k">Budgeted</div><div class="v">${moneyS(totalBud)}</div></div>
+    <div class="cmp-stat"><div class="k">Expense budget</div><div class="v">${moneyS(totalBud)}</div></div>
     <div class="cmp-stat"><div class="k">Actual spent</div><div class="v">${moneyS(totalAct)}</div></div>
     <div class="cmp-stat"><div class="k">Difference</div><div class="v" style="color:${totalBud-totalAct>=0?'var(--mint)':'var(--red)'}">${money(totalBud-totalAct)}</div></div>
   </div>`;
 
   if(workTravel>0){
     html+=`<div class="travel-note">↩ ${money(workTravel)} tagged as work travel — netted out of spending (reimbursable).</div>`;
+  }
+  if(transfers>0){
+    html+=`<div class="travel-note">↔ ${money(transfers)} matched to savings/transfer lines — tracked in cash flow, not counted as spending.</div>`;
   }
 
   html+=`<div class="cmp-bar-head"><span>Category</span><span>Budget → Actual</span></div>`;
@@ -854,6 +865,7 @@ function renderCompare(m){
   html+=`<div class="src-note">Imported: ${srcLabel} · ${(m.imported||[]).length} transactions`;
   if(income>0)html+=` · ${moneyS(income)} income detected`;
   if(skipped>0)html+=` · ${moneyS(skipped)} transfers/fees skipped`;
+  if(transfers>0)html+=` · ${moneyS(transfers)} savings transfers`;
   html+=`</div>`;
 
   // Review-all panel (collapsed by default)
