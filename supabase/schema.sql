@@ -66,6 +66,7 @@ create table if not exists transactions (
   description text not null,
   amount numeric not null,                  -- negative = charge/debit, positive = credit
   txn_type text,                            -- raw type from CSV
+  import_key text,                          -- stable duplicate key from imported CSV fields
   category text,                            -- assigned budget line (null = uncategorized)
   work_travel boolean not null default false,
   created_at timestamptz not null default now()
@@ -78,11 +79,74 @@ alter table transactions
   add column if not exists description text,
   add column if not exists amount numeric,
   add column if not exists txn_type text,
+  add column if not exists import_key text,
   add column if not exists category text,
   add column if not exists work_travel boolean not null default false,
   add column if not exists created_at timestamptz not null default now();
+
+update transactions
+set import_key = concat(
+  coalesce(source, 'chase'), '|',
+  coalesce(txn_date::text, ''), '|',
+  trim(regexp_replace(upper(coalesce(description, '')), '\s+', ' ', 'g')), '|',
+  to_char(round(coalesce(amount, 0)::numeric, 2), 'FM999999999999990.00'), '|',
+  trim(upper(coalesce(txn_type, '')))
+)
+where import_key is null;
+
+with ranked as (
+  select
+    id,
+    first_value(id) over (
+      partition by household_id, import_key
+      order by created_at nulls last, id
+    ) as keep_id,
+    first_value(category) over (
+      partition by household_id, import_key
+      order by (category is null), created_at nulls last, id
+    ) as merged_category,
+    bool_or(work_travel) over (
+      partition by household_id, import_key
+    ) as merged_work_travel,
+    row_number() over (
+      partition by household_id, import_key
+      order by created_at nulls last, id
+    ) as rn
+  from transactions
+  where import_key is not null
+),
+keepers as (
+  select distinct keep_id, merged_category, merged_work_travel
+  from ranked
+  where rn = 1
+)
+update transactions t
+set
+  category = coalesce(k.merged_category, t.category),
+  work_travel = coalesce(k.merged_work_travel, t.work_travel)
+from keepers k
+where t.id = k.keep_id;
+
+with ranked as (
+  select
+    id,
+    row_number() over (
+      partition by household_id, import_key
+      order by created_at nulls last, id
+    ) as rn
+  from transactions
+  where import_key is not null
+)
+delete from transactions t
+using ranked r
+where t.id = r.id
+  and r.rn > 1;
+
 create index if not exists transactions_household_month
   on transactions (household_id, month_key);
+create unique index if not exists transactions_household_import_key
+  on transactions (household_id, import_key)
+  where import_key is not null;
 
 -- 4) RULES -----------------------------------------------------
 -- Keyword → budget-line mappings (learned over time). source distinguishes card vs checking.

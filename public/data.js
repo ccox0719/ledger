@@ -112,10 +112,15 @@ export async function flushSave(state) {
         household_id: hid, month_key: key, source: t.source || 'chase',
         txn_date: normDate(t.date), description: t.desc, amount: t.amount,
         txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
+        import_key: txnImportKey(t),
       };
       if (t._id) { row.id = t._id; await requireSupabase().from('transactions').upsert(row); }
       else {
-        const { data } = await requireSupabase().from('transactions').insert(row).select('id').single();
+        const { data } = await requireSupabase()
+          .from('transactions')
+          .upsert(row, { onConflict: 'household_id,import_key' })
+          .select('id')
+          .single();
         if (data) t._id = data.id;
       }
     }
@@ -144,6 +149,15 @@ function normDate(d) {
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   const p = s.split('/'); if (p.length < 3) return null;
   return `${p[2]}-${String(p[0]).padStart(2,'0')}-${String(p[1]).padStart(2,'0')}`;
+}
+
+function txnImportKey(t) {
+  const source = t.source || 'chase';
+  const date = normDate(t.date) || '';
+  const desc = String(t.desc || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const amount = Number(t.amount || 0).toFixed(2);
+  const type = String(t.type || '').toUpperCase().trim();
+  return [source, date, desc, amount, type].join('|');
 }
 
 // Delete a single transaction (e.g. clearing an import)
