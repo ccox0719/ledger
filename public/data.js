@@ -22,7 +22,9 @@ function requireSupabase() {
 
 function assertOk(result, action) {
   if (result?.error) {
-    throw new Error(`${action}: ${result.error.message}`);
+    const err = result.error;
+    const details = [err.message, err.details, err.hint, err.code].filter(Boolean).join(' | ');
+    throw new Error(`${action}: ${details || 'Supabase request failed'}`);
   }
   return result;
 }
@@ -170,8 +172,8 @@ async function saveTransactions(rows, refsByImportKey) {
 
   const keys = [...new Set(uniqueRows.map(r => r.import_key).filter(Boolean))];
   const existingByKey = new Map();
-  for (let i = 0; i < keys.length; i += 500) {
-    const keyChunk = keys.slice(i, i + 500);
+  for (let i = 0; i < keys.length; i += 20) {
+    const keyChunk = keys.slice(i, i + 20);
     const { data } = assertOk(await requireSupabase()
       .from('transactions')
       .select('id,import_key')
