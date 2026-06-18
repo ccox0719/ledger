@@ -64,6 +64,7 @@ create table if not exists transactions (
   month_key text not null,                  -- which budget month it belongs to
   source text not null default 'chase',     -- 'chase' | 'usbank'
   txn_date date,
+  date date,
   description text not null,
   amount numeric not null,                  -- negative = charge/debit, positive = credit
   txn_type text,                            -- raw type from CSV
@@ -78,6 +79,7 @@ alter table transactions
   add column if not exists month_key text,
   add column if not exists source text not null default 'chase',
   add column if not exists txn_date date,
+  add column if not exists date date,
   add column if not exists description text,
   add column if not exists amount numeric,
   add column if not exists txn_type text,

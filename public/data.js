@@ -86,7 +86,7 @@ export async function loadState() {
     if (!state.months[mk]) state.months[mk] = { todayBalance: null, groups: [], oneTime: [], imported: [] };
     state.months[mk].imported.push({
       _id: t.id,
-      date: t.txn_date,
+      date: t.txn_date || t.date,
       desc: t.description,
       amount: Number(t.amount),
       type: t.txn_type,
@@ -133,9 +133,10 @@ export async function flushSave(state) {
   for (const [key, m] of Object.entries(state.months)) {
     for (const t of (m.imported || [])) {
       const importKey = txnImportKey(t);
+      const txnDate = normDate(t.date);
       transactionRows.push({
         household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
-        txn_date: normDate(t.date), description: t.desc, amount: t.amount,
+        txn_date: txnDate, date: txnDate, description: t.desc, amount: t.amount,
         txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
         import_key: importKey,
       });
