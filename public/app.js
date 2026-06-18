@@ -7,6 +7,7 @@ let cursor = monthKey(new Date(2026,5,1));
 let view = 'flow';
 let importingCSV = false;
 let importStatus = '';
+const NOT_TRAVEL_TAG='__NOT_TRAVEL__';
 
 // Save on tab close to flush any pending debounce
 window.addEventListener('beforeunload', () => { try { flushSave(state); } catch(e){} });
@@ -28,42 +29,42 @@ function defaultMonth(){
         I('Annie Phone Stipend',0,15),
       ]},
       {id:crypto.randomUUID(),name:'CHARITABLE',lines:[
-        E('Tithe',1060,6),E('Compassion',50,15),
+        E('Tithe',1477,6),E('Compassion',50,15),E('Other Giving',326,15),
       ]},
       {id:crypto.randomUUID(),name:'SAVINGS / TRANSFERS',lines:[
-        X('Retirement Fund',2000,2),
+        X('Retirement Fund',4725,2),
         X('Credit Card Payment',0,19),
       ]},
       {id:crypto.randomUUID(),name:'HOUSING',lines:[
-        E('First Mortgage',896.81,1),E('Lawn Care',39.61,5),
+        E('First Mortgage',896.81,1),E('Real Estate Taxes',535,6),E('Lawn Care',39.61,5),
       ]},
       {id:crypto.randomUUID(),name:'UTILITIES',lines:[
         E('Trash',13.50,1),E('Water',110,2),E('Metro Net',58.68,10),
-        {...E('Verizon (2 phones)',200.54,14),cadence:'even'},
-        E('Electricity/Gas',225,30),
+        E('Verizon (2 phones)',330,14),
+        E('Electricity/Gas',150,30),
       ]},
       {id:crypto.randomUUID(),name:'FOOD',lines:[
-        E('Groceries',375,1),E('Restaurants',50,1),E('Annie Flex',40,1),E('Chris Flex',40,1),E('School Lunches',31,30),
+        E('Groceries',745,1),E('Restaurants',380,1),E('Annie Flex',40,1),E('Chris Flex',40,1),E('School Lunches',31,30),
       ]},
       {id:crypto.randomUUID(),name:'TRANSPORTATION',lines:[
-        E('Gas/Oil',300,15),E('License and Taxes',30,15),
+        E('Gas/Oil',235,15),E('License and Taxes',90,15),
       ]},
       {id:crypto.randomUUID(),name:'CLOTHING / RETAIL',lines:[
-        E('Clothing',60,1),E('Retail',300,1),
+        E('Clothing',120,1),E('Retail',685,1),
       ]},
       {id:crypto.randomUUID(),name:'MEDICAL/HEALTH',lines:[
-        E('Doctor/Chiropractor',230,1),E('Health',10,1),E('Dentist',0,15),E('Dieting/Exercise',8.33,15),E('Life Insurance',91.12,15),
+        E('Doctor/Chiropractor',230,1),E('Health',65,1),E('Dentist',0,15),E('Dieting/Exercise',8.33,15),E('Life Insurance',470,15),
       ]},
       {id:crypto.randomUUID(),name:'PERSONAL',lines:[
-        E('Toiletries',130,1),E('Cosmetics',10,15),E('Hair Care',5,17),E('School Supplies',50,17),
+        E('Toiletries',345,1),E('Cosmetics',10,15),E('Hair Care',5,17),E('School Supplies',285,17),
       ]},
       {id:crypto.randomUUID(),name:'RECREATION',lines:[
-        E('Entertainment',20,1),E('Lake Ann',104,6),E('Sports',270,15),
+        E('Entertainment',1170,1),E('Lake Ann',104,6),E('Sports',115,15),
         E('Kindle Unlimited',0,1),E('Audible',0,6),E('Spotify',21.19,7),E('ChatGPT',20,5),
         E('Amazon Photos',5,15),E('Amazon Prime',12.50,17),E('HBO Max',10,28),
       ]},
       {id:crypto.randomUUID(),name:'TRAVEL',lines:[
-        E('Vacation',0,1),E('Travel Reimbursement (work)',0,1),
+        E('Vacation',735,1),E('Travel Reimbursement (work)',0,1),
       ]},
     ]
   };
@@ -87,9 +88,9 @@ function defaultRules(){
     ['USAA','Life Insurance'],['VERIZON','Verizon (2 phones)'],['METRO NET','Metro Net'],
     // Gas / transportation
     ['WAWA','Gas/Oil'],['CASEYS','Gas/Oil'],['QT ','Gas/Oil'],['PILOT','Gas/Oil'],['GULF OIL','Gas/Oil'],['KWIK','Gas/Oil'],['CASEY','Gas/Oil'],
-    // Groceries (incl. warehouse stores — usually groceries + toiletries)
-    ['ALDI','Groceries'],['HY-VEE','Groceries'],['FAREWAY','Groceries'],['WM SUPERCENTER','Groceries'],['WAL-MART','Groceries'],['WALMART','Groceries'],
-    ['SAMS CLUB','Groceries'],['SAMSCLUB','Groceries'],['COSTCO','Groceries'],
+    // Groceries and mixed merchants. Mixed merchants are split in actuals aggregation.
+    ['ALDI','Groceries'],['HY-VEE','Groceries'],['FAREWAY','Groceries'],
+    ['TARGET','Retail'],
     // Amazon -> all Retail
     ['AMAZON','Retail'],['AMZN','Retail'],
     // Health
@@ -192,7 +193,9 @@ function checkingRules(){
     ['US BANK HOME MTG','First Mortgage'],['HOME MTG','First Mortgage'],
     ['METRO FIBERNET','Metro Net'],['VERIZON','Verizon (2 phones)'],['MIDAMERICAN','Electricity/Gas'],
     ['POLK COUNTY','Real Estate Taxes'],['BB TUITION','School Supplies'],['TUITION','School Supplies'],
-    ['KEYSTONE CHURCH','Tithe'],['RAISERIGHT','Groceries'],['IOWA REGULAR','License and Taxes'],
+    ['CHECK #5455','Tithe'],['CHECK #5458','Tithe'],['CHECK #5459','Tithe'],
+    ['CHECK #5461','Tithe'],['CHECK #5462','Tithe'],['CHECK #5463','Tithe'],
+    ['KEYSTONE CHURCH','Tithe'],['RAISERIGHT','Gas/Oil'],['IOWA REGULAR','License and Taxes'],
   ];
 }
 // load() handled by bootstrap (loadState from data.js)
@@ -666,6 +669,47 @@ function categorize(desc, source){
   for(const [kw,line] of rules){ if(ruleMatches(desc,kw)) return line; }
   return null;
 }
+function isTravelIgnored(t){
+  return t.cat===NOT_TRAVEL_TAG;
+}
+function merchantSplitAllocations(desc, source){
+  const D=normalizedRuleText(desc);
+  if(source==='usbank' && D.includes('RAISERIGHT')){
+    return [{line:'Gas/Oil',pct:1}];
+  }
+  if(source && source!=='chase') return null;
+  if(D.includes('ALDI')){
+    return [{line:'Groceries',pct:1}];
+  }
+  if(D.includes('WALMART') || D.includes('WAL MART') || D.includes('WM SUPERCENTER')){
+    return [
+      {line:'Toiletries',pct:.80},
+      {line:'Health',pct:.10},
+      {line:'Groceries',pct:.10},
+    ];
+  }
+  if(D.includes('SAMS CLUB') || D.includes('SAMSCLUB') || D.includes('COSTCO')){
+    return [
+      {line:'Groceries',pct:.75},
+      {line:'Toiletries',pct:.20},
+      {line:'Clothing',pct:.05},
+    ];
+  }
+  if(D.includes('TARGET')){
+    return [{line:'Retail',pct:1}];
+  }
+  return null;
+}
+function allocationLinesForTxn(t){
+  if(t.cat!==undefined && t.cat!==NOT_TRAVEL_TAG){
+    return t.cat ? [{line:t.cat,pct:1}] : null;
+  }
+  const source=t.source||'chase';
+  const split=merchantSplitAllocations(t.desc,source);
+  if(split) return split;
+  const line=categorize(t.desc,source);
+  return line ? [{line,pct:1}] : null;
+}
 // Aggregate imported transactions for the current month into actual spend per budget line
 function buildActuals(m){
   const txns=(m.imported||[]);
@@ -674,12 +718,15 @@ function buildActuals(m){
     if(t.type==='Payment') return;
     const spend=-t.amount;
     if(t.workTravel){ workTravel+=spend; return; }
-    const line=t.cat!==undefined?t.cat:categorize(t.desc,t.source);
-    if(line==='__INCOME__'){ income+=t.amount; return; }
-    if(line==='__CARDPAY__'||line==='__SKIP__'){ skipped+=spend; return; }
-    if(!line){ uncategorized.push(t); return; }
-    if(lineTypeFor(m,line)==='xfer'){ transfers+=spend; return; }
-    byLine[line]=(byLine[line]||0)+spend;
+    const allocations=allocationLinesForTxn(t);
+    if(!allocations){ uncategorized.push(t); return; }
+    allocations.forEach(({line,pct})=>{
+      const part=spend*pct;
+      if(line==='__INCOME__'){ income+=t.amount*pct; return; }
+      if(line==='__CARDPAY__'||line==='__SKIP__'){ skipped+=part; return; }
+      if(lineTypeFor(m,line)==='xfer'){ transfers+=part; return; }
+      byLine[line]=(byLine[line]||0)+part;
+    });
   });
   return {byLine,uncategorized,count:txns.length,workTravel,income,skipped,transfers};
 }
@@ -708,17 +755,27 @@ function buildYearActuals(year=yearKey()){
   collectYearTxns(year).forEach(t=>{
     const source=t.source||'chase';
     bySource[source]=(bySource[source]||0)+1;
-    let line=t.cat!==undefined?t.cat:categorize(t.desc,source);
     if(t.workTravel){workTravel+=Math.abs(t.amount||0);return;}
-    if(line==='__INCOME__'){income+=Math.abs(t.amount||0);return;}
-    if(line==='__CARDPAY__'||line==='__SKIP__'){skipped+=Math.abs(t.amount||0);return;}
+    const allocations=allocationLinesForTxn(t);
     const spend=-(Number(t.amount)||0);
-    if(spend<=0)return;
-    if(line&&lineTypeForTxn(t,line)==='xfer'){transfers+=spend;return;}
-    spending+=spend;
-    byMonth[t.month]=(byMonth[t.month]||0)+spend;
-    if(!line){uncategorized.push(t);return;}
-    byLine[line]=(byLine[line]||0)+spend;
+    if(!allocations){
+      if(spend>0){
+        spending+=spend;
+        byMonth[t.month]=(byMonth[t.month]||0)+spend;
+        uncategorized.push(t);
+      }
+      return;
+    }
+    allocations.forEach(({line,pct})=>{
+      if(line==='__INCOME__'){income+=Math.abs(Number(t.amount||0))*pct;return;}
+      if(line==='__CARDPAY__'||line==='__SKIP__'){skipped+=Math.abs(Number(t.amount||0))*pct;return;}
+      if(spend<=0)return;
+      const part=spend*pct;
+      if(lineTypeForTxn(t,line)==='xfer'){transfers+=part;return;}
+      spending+=part;
+      byMonth[t.month]=(byMonth[t.month]||0)+part;
+      byLine[line]=(byLine[line]||0)+part;
+    });
   });
   return {byLine,uncategorized,byMonth,bySource,workTravel,income,skipped,transfers,spending,count:collectYearTxns(year).length};
 }
@@ -989,7 +1046,7 @@ function normalizeRetirementFundLines(){
         paid:false,
         actual:null,
       };
-      if(Math.abs(merged.budgeted-4500)<0.01) merged.budgeted=2000;
+      if(Math.abs(merged.budgeted-4500)<0.01 || Math.abs(merged.budgeted-2000)<0.01) merged.budgeted=4725;
       g.lines=[merged,...(g.lines||[]).filter(l=>!/^Retirement Fund( \(\d+\))?$/.test(l.name||''))];
       changed=true;
     }
@@ -1009,13 +1066,57 @@ function normalizePhoneLines(){
     for(const line of utilities.lines||[]){
       if(line.name==='Verizon'||line.name==='Verizon Wireless'||line.name==='Verizon (phones)'){
         line.name='Verizon (2 phones)';
-        line.budgeted=200.54;
-        line.cadence=line.cadence||'even';
+        line.budgeted=330;
+        line.cadence='monthly';
         line.day=line.day||14;
         changed=true;
       }
-      if(line.name==='Verizon (2 phones)' && !line.cadence){
-        line.cadence='even';
+      if(line.name==='Verizon (2 phones)' && (Math.abs((Number(line.budgeted)||0)-200.54)<0.01 || line.cadence==='even')){
+        line.budgeted=330;
+        line.cadence='monthly';
+        changed=true;
+      }
+    }
+  }
+  return changed;
+}
+function normalizeBudgetAmounts(){
+  let changed=false;
+  const desired=new Map(Object.entries({
+    'Tithe':1477,
+    'Compassion':50,
+    'Other Giving':326,
+    'Retirement Fund':4725,
+    'First Mortgage':896.81,
+    'Real Estate Taxes':535,
+    'Metro Net':58.68,
+    'Verizon (2 phones)':330,
+    'Electricity/Gas':150,
+    'Groceries':745,
+    'Restaurants':380,
+    'Gas/Oil':235,
+    'License and Taxes':90,
+    'Clothing':120,
+    'Retail':685,
+    'Doctor/Chiropractor':230,
+    'Health':65,
+    'Life Insurance':470,
+    'Toiletries':345,
+    'School Supplies':285,
+    'Entertainment':1170,
+    'Sports':115,
+    'Vacation':735,
+  }));
+  for(const m of Object.values(state.months||{})){
+    for(const line of (m.groups||[]).flatMap(g=>g.lines||[])){
+      if(!desired.has(line.name)) continue;
+      const next=desired.get(line.name);
+      if(Math.abs((Number(line.budgeted)||0)-next)>0.005){
+        line.budgeted=next;
+        changed=true;
+      }
+      if(line.name==='Verizon (2 phones)' && line.cadence!=='monthly'){
+        line.cadence='monthly';
         changed=true;
       }
     }
@@ -1123,12 +1224,11 @@ function handleCSV(e){
       }
       const dupes=normalizeImportedState();
       if(dupes.length) await deleteTxnIds(dupes);
-      save();
       setImportStatus('Saving imported transactions...');
-      await flushSave(state);
+      const saved = await flushSave(state);
       if(!touched.includes(cursor) && touched.length) cursor=touched[touched.length-1];
       view='compare';
-      const msg=`Imported ${added} new and matched ${updated} existing ${src==='usbank'?'US Bank':'Chase'} transactions across ${touched.length} month${touched.length===1?'':'s'}${skipped?`; skipped ${skipped} rows without usable dates`:''}.`;
+      const msg=`Imported ${added} new and matched ${updated} existing ${src==='usbank'?'US Bank':'Chase'} transactions across ${touched.length} month${touched.length===1?'':'s'}; Supabase confirmed ${saved?.transactionsSaved??0} saved transaction${saved?.transactionsSaved===1?'':'s'}${skipped?`; skipped ${skipped} rows without usable dates`:''}.`;
       setImportStatus('');
       render();
       setTimeout(()=>noticeModal('Import Complete',msg),0);
@@ -1152,7 +1252,10 @@ function reviewSortState(panel=document.getElementById('reviewPanel')){
   return {sort,dir};
 }
 function reviewCategory(t){
-  return t.cat!==undefined?t.cat:categorize(t.desc,t.source);
+  if(t.cat!==undefined && t.cat!==NOT_TRAVEL_TAG) return t.cat;
+  const split=merchantSplitAllocations(t.desc,t.source||'chase');
+  if(split) return split.map(a=>`${Math.round(a.pct*100)}% ${a.line}`).join(' / ');
+  return categorize(t.desc,t.source);
 }
 function reviewCategoryLabel(t){
   const cat=reviewCategory(t);
@@ -1175,12 +1278,40 @@ function tripForTxn(tx,trips=getTrips()){
     return d>=s&&d<=e;
   })||null;
 }
+function tripRangeLabel(t){
+  if(!t?.start)return '';
+  const start=shortDate(t.start);
+  const end=shortDate(t.end||t.start);
+  return start===end?start:`${start}-${end}`;
+}
+function reviewTripSummaryHTML(m){
+  const trips=getTrips().slice().filter(t=>t.start).sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+  if(!trips.length) return '';
+  const txns=m.imported||[];
+  const tripRows=trips.map(t=>{
+    const count=txns.filter(tx=>tripForTxn(tx,[t])&&isTravelCandidate(tx,[t])).length;
+    const label=t.name||`${t.kind==='work'?'Work':'Personal'} trip`;
+    const cls=t.kind==='work'?'work':'personal';
+    return `<span class="rev-trip-window ${cls}" title="${label} · ${tripRangeLabel(t)}">${label} <b>${tripRangeLabel(t)}</b>${count?` <em>${count}</em>`:''}</span>`;
+  }).join('');
+  return `<div class="rev-trip-summary">
+    <div class="rts-title">Logged travel dates</div>
+    <div class="rts-list">${tripRows}</div>
+  </div>`;
+}
 function isTravelCandidate(tx,trips=getTrips()){
   const cat=reviewCategory(tx);
-  if(tx.workTravel||cat==='Vacation')return false;
+  if(tx.workTravel||isTravelIgnored(tx)||cat==='Vacation')return false;
   if(['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat))return false;
   if(tx.type==='Payment'||Number(tx.amount)>=0)return false;
   return !!tripForTxn(tx,trips);
+}
+function ignoredTravelTxns(year=yearKey()){
+  const trips=getTrips();
+  return collectYearTxns(year)
+    .map(t=>({...t,d:parseMDY(t.date)}))
+    .filter(t=>isTravelIgnored(t)&&tripForTxn(t,trips))
+    .sort((a,b)=>(a.d||0)-(b.d||0));
 }
 function travelCandidateTxns(year=yearKey()){
   const trips=getTrips();
@@ -1212,7 +1343,8 @@ function buildReviewHTML(m){
   const txns=sortedReviewTxns(m);
   const lineOpts=m.groups.flatMap(g=>g.lines).filter(l=>l.type!=='in').map(l=>l.name);
   const head=(key,label,cls)=>`<button class="rev-sort ${cls} ${sort===key?'on dir-'+dir:''}" data-sort="${key}">${label}</button>`;
-  let h=`<div class="rev-head">${head('src','Src','rv-src')}${head('date','Date','rv-date')}${head('desc','Description','rv-desc')}${head('amount','Amount','rv-amt')}${head('cat','Category','rv-cat')}</div>`;
+  let h=reviewTripSummaryHTML(m);
+  h+=`<div class="rev-head">${head('src','Src','rv-src')}${head('date','Date','rv-date')}${head('desc','Description','rv-desc')}${head('amount','Amount','rv-amt')}${head('cat','Category','rv-cat')}</div>`;
   txns.forEach((t,i)=>{
     let cat=reviewCategory(t);
     let catDisplay, catClass='';
@@ -1225,18 +1357,20 @@ function buildReviewHTML(m){
     const trip=tripForTxn(t);
     const travelCandidate=isTravelCandidate(t);
     const tripClass=travelCandidate?` rv-trip rv-trip-${trip.kind==='work'?'work':'personal'}`:'';
-    const tripChip=travelCandidate?`<span class="rv-trip-chip ${trip.kind==='work'?'work':'personal'}">${trip.kind==='work'?'work trip':'trip'}</span>`:'';
+    const tripLabel=trip?(trip.name||`${trip.kind==='work'?'work':'personal'} trip`):'';
+    const tripChip=travelCandidate?`<span class="rv-trip-chip ${trip.kind==='work'?'work':'personal'}" title="${tripLabel} · ${tripRangeLabel(trip)}">${tripLabel} ${tripRangeLabel(trip)}</span>`:'';
     const editable = !(t.workTravel||['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat));
     const sel = editable
       ? `<select class="rv-assign" data-idx="${i}"><option value="">${catDisplay}</option>${lineOpts.map(o=>`<option value="${o}" ${o===cat?'selected':''}>${o}</option>`).join('')}</select>`
       : `<span class="rv-fixed ${catClass}">${catDisplay}</span>`;
+    const travelAction=travelCandidate?`<button class="rv-not-travel" data-not-travel-idx="${i}" title="Stop suggesting this transaction as travel">Not travel</button>`:'';
     const src=(t.source==='usbank')?'<span class="src-tag usb">USB</span>':'<span class="src-tag chs">CHS</span>';
     h+=`<div class="rev-row ${catClass}${tripClass}">
       <span class="rv-src">${src}</span>
       <span class="rv-date">${shortDate(t.date)}</span>
       <span class="rv-desc" title="${t.desc.replace(/"/g,'&quot;')}${trip?` · ${trip.name||trip.kind}`:''}">${tripChip}${t.desc}</span>
       <span class="rv-amt ${t.amount>=0?'pos':''}">${money(t.amount)}</span>
-      <span class="rv-cat">${sel}</span>
+      <span class="rv-cat">${travelAction}${sel}</span>
     </div>`;
   });
   return h;
@@ -1286,6 +1420,18 @@ function wireReview(m,panel){
     const p=document.getElementById('reviewPanel');
     if(p){ p.innerHTML=buildReviewHTML(m); p.style.display=''; wireReview(m,p); }
   }));
+  panel.querySelectorAll('[data-not-travel-idx]').forEach(btn=>btn.addEventListener('click',()=>{
+    const t=txns[+btn.dataset.notTravelIdx]; if(!t)return;
+    const real=(m.imported||[]).find(x=>x.desc===t.desc&&x.date===t.date&&x.amount===t.amount&&(x.source||'')===(t.source||''));
+    if(real){
+      real.workTravel=false;
+      real.cat=NOT_TRAVEL_TAG;
+      save();
+      renderCompare(m);
+      const p=document.getElementById('reviewPanel');
+      if(p){ p.innerHTML=buildReviewHTML(m); p.style.display=''; wireReview(m,p); }
+    }
+  }));
 }
 
 function renderTravel(m){
@@ -1333,6 +1479,7 @@ function renderTravel(m){
   }
   const tagged=taggedTravelTxns(yearKey());
   const candidates=travelCandidateTxns(yearKey());
+  const ignored=ignoredTravelTxns(yearKey());
   html+=`<div class="travel-review"><h2>Possible Travel Transactions</h2>`;
   if(!trips.length){
     html+=`<div class="src-note">Add a trip to highlight imported charges that fall inside the trip dates.</div>`;
@@ -1350,6 +1497,26 @@ function renderTravel(m){
         <span class="tt-actions">
           <button data-candidate-idx="${i}" data-travel-as="vacation">Vacation</button>
           <button class="work" data-candidate-idx="${i}" data-travel-as="work">Work reimb.</button>
+          <button data-candidate-idx="${i}" data-travel-as="ignore">Not travel</button>
+        </span>
+      </div>`;
+    });
+  }
+  html+=`</div>`;
+
+  html+=`<div class="travel-review"><h2>Ignored Travel Matches</h2>`;
+  if(!ignored.length){
+    html+=`<div class="src-note">No travel-date matches have been marked as not travel for ${yearKey()}.</div>`;
+  } else {
+    html+=`<div class="src-note">${ignored.length} imported transaction${ignored.length===1?'':'s'} inside logged trip dates are hidden from travel suggestions.</div>`;
+    ignored.forEach((tx,i)=>{
+      const trip=tripForTxn(tx,trips);
+      html+=`<div class="travel-txn">
+        <span class="tt-date">${shortDate(tx.date)}</span>
+        <span class="tt-desc" title="${(tx.desc||'').replace(/"/g,'&quot;')}">${trip?`[${trip.name||trip.kind}] `:''}${tx.desc||''}</span>
+        <span class="tt-amt">${money(Math.abs(Number(tx.amount)||0))}</span>
+        <span class="tt-actions">
+          <button data-ignored-idx="${i}">Suggest again</button>
         </span>
       </div>`;
     });
@@ -1422,7 +1589,17 @@ function renderTravel(m){
     if(!real)return;
     if(b.dataset.travelAs==='work'){real.workTravel=true;real.cat=undefined;}
     else if(b.dataset.travelAs==='vacation'){real.workTravel=false;real.cat='Vacation';}
+    else if(b.dataset.travelAs==='ignore'){real.workTravel=false;real.cat=NOT_TRAVEL_TAG;}
     else {real.workTravel=false;real.cat=undefined;}
+    save();
+    renderTravel(m);
+  }));
+  c.querySelectorAll('[data-ignored-idx]').forEach(b=>b.addEventListener('click',()=>{
+    const tx=ignored[+b.dataset.ignoredIdx];
+    const real=findTxnRef(tx);
+    if(!real)return;
+    real.workTravel=false;
+    real.cat=undefined;
     save();
     renderTravel(m);
   }));
@@ -1473,8 +1650,9 @@ async function startApp(){
     const changedRetirementLines=normalizeRetirementFundLines();
     const changedPhoneLines=normalizePhoneLines();
     const changedRemovedBudgetLines=normalizeRemovedBudgetLines();
+    const changedBudgetAmounts=normalizeBudgetAmounts();
     if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
-    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines||changedRemovedBudgetLines) save();
+    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines||changedRemovedBudgetLines||changedBudgetAmounts) save();
     // seed defaults for the current month if missing or if a partial DB row exists
     // without the budget template.
     ensureMonth(cursor,true);

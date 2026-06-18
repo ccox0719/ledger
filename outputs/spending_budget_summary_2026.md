@@ -13,6 +13,13 @@ Analysis period: January-May 2026 as full months. June is partial and is exclude
 - LPL withdrawals are treated as savings/retirement transfers, not spending.
 - Positive deposits are treated as income/offsets, not spending.
 - Recurring checks of `$1,477` (`CHECK #5455`, `#5458`, `#5459`, `#5461`, `#5462`, and June `#5463`) are treated as Tithe/Giving.
+- RaiseRight is treated mostly as gas cards and included in Gas/Oil.
+- Merchant splits are applied where a merchant mixes categories:
+  - Aldi: 100% Groceries
+  - Walmart / WM Supercenter: 80% Personal/Toiletries, 10% Medical/Health, 10% Groceries
+  - Sam's Club: 75% Groceries, 20% Personal/Toiletries, 5% Clothing
+  - Costco: 75% Groceries, 20% Personal/Toiletries, 5% Clothing
+  - Target: 100% Retail
 - Venmo, Zelle, Splitwise, cash withdrawals, and non-recurring checks remain in review until labeled.
 
 ## Headline Run Rate
@@ -42,14 +49,14 @@ Use this as the new starting budget, then revise after labeling the review items
 | Budget Line | Proposed Monthly Budget | Basis |
 |---|---:|---|
 | Tithe/Giving | $1,850 | Actual run rate, includes $1,477 monthly check |
-| Groceries | $1,300 | Actual run rate |
+| Groceries | $745 | Aldi 100%, Sam's/Costco 75%, Walmart 10%, plus food-store merchants |
 | Mortgage | $897 | Fixed actual |
 | Restaurants | $380 | Actual run rate |
 | Retail | $685 | Actual run rate |
 | Travel/Vacation | $735 | Actual run rate, likely lumpy |
 | Entertainment | $1,170 | Actual run rate, likely lumpy |
 | Phones | $330 | Actual run rate |
-| Medical/Health | $275 | Actual run rate |
+| Medical/Health | $295 | Actual run rate plus Walmart 10% split |
 | School/Kids | $285 | Actual run rate |
 | Electric/Gas Utility | $150 | Actual run rate |
 | Internet | $59 | Fixed actual |
@@ -58,20 +65,30 @@ Use this as the new starting budget, then revise after labeling the review items
 | Property Taxes | $535 | Annualized from March payment |
 | License/Taxes | $90 | Actual run rate |
 | Sports/Recreation | $115 | Actual run rate |
-| Clothing | $90 | Actual run rate |
-| Personal/Toiletries | $45 | Actual run rate |
+| Clothing | $120 | Actual run rate plus Sam's/Costco 5% split |
+| Personal/Toiletries | $345 | Walmart 80% plus Sam's/Costco 20% split |
 | Auto Maintenance | $40 | Actual run rate |
 | Home/Retail | $35 | Actual run rate |
-| Gas/Oil | $25 | Actual run rate, appears low if fuel is paid elsewhere |
+| Gas/Oil | $235 | Card gas plus RaiseRight gas-card run rate |
 | Subscriptions: Spotify, ChatGPT, Streaming, Prime, Kindle | $85 | Actual run rate |
 | Bank Fees | $0 | Fees appear offset/waived; do not budget as normal spending |
 | Review / Unassigned Cash, Checks, Venmo, Zelle | $3,100 | Temporary placeholder until labeled |
 | Savings/Retirement Transfer | $4,725 | Actual transfer run rate |
 
 Budget roll-up:
-- Categorized monthly spending target: `$9,821`
-- Spending target including temporary review bucket: `$12,921`
-- Spending plus savings/retirement transfers: `$17,646`
+- Categorized monthly spending target: `$9,826`
+- Spending target including temporary review bucket: `$12,926`
+- Spending plus savings/retirement transfers: `$17,651`
+
+Grocery correction:
+- The earlier `$1,300/mo` grocery estimate was too broad because mixed merchants were treated as all grocery.
+- With percentage splits, groceries average about `$742/mo`.
+- Key split effects:
+  - Aldi to groceries: `$215/mo`
+  - Sam's Club to groceries: `$424/mo`, toiletries: `$113/mo`, clothing: `$28/mo`
+  - Costco to groceries: `$34/mo`, toiletries: `$9/mo`, clothing: `$2/mo`
+  - Walmart to toiletries: `$179/mo`, health: `$22/mo`, groceries: `$22/mo`
+  - RaiseRight to Gas/Oil: `$213/mo`
 
 ## Items To Label
 

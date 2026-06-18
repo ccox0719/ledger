@@ -5,9 +5,10 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// Vite injects these at build time from Netlify env vars.
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Vite injects these at build time from Netlify env vars. The fallback keeps
+// GitHub/Netlify builds connected even if the site env vars are missing.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://svaozzitkajgqzacldur.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2YW96eml0a2FqZ3F6YWNsZHVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMDY1NDMsImV4cCI6MjA3Mzc4MjU0M30.zn50Iw8ib-wTt2Z0gQuKnJbDSe8qr-H-tRvkW2THiKQ';
 
 const missingConfig = !SUPABASE_URL || !SUPABASE_ANON_KEY;
 export const supabase = missingConfig ? null : createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -17,6 +18,22 @@ function requireSupabase() {
     throw new Error('Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify, then redeploy.');
   }
   return supabase;
+}
+
+function assertOk(result, action) {
+  if (result?.error) {
+    throw new Error(`${action}: ${result.error.message}`);
+  }
+  return result;
+}
+
+async function fetchAll(makeQuery, action, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data } = assertOk(await makeQuery().range(from, from + pageSize - 1), action);
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return rows;
+  }
 }
 
 let householdId = null;
@@ -31,9 +48,8 @@ export async function signIn(email, password) {
 export async function signOut() { return requireSupabase().auth.signOut(); }
 
 export async function resolveHousehold() {
-  const { data, error } = await requireSupabase()
-    .from('household_members').select('household_id').limit(1).maybeSingle();
-  if (error) throw error;
+  const { data } = assertOk(await requireSupabase()
+    .from('household_members').select('household_id').limit(1).maybeSingle(), 'Load household');
   householdId = data?.household_id || null;
   return householdId;
 }
@@ -45,13 +61,13 @@ export async function loadState() {
   if (!householdId) return state; // not set up yet
 
   const [months, rules, trips, txns] = await Promise.all([
-    requireSupabase().from('months').select('*'),
-    requireSupabase().from('rules').select('*').order('priority', { ascending: false }),
-    requireSupabase().from('trips').select('*'),
-    requireSupabase().from('transactions').select('*'),
+    fetchAll(() => requireSupabase().from('months').select('*'), 'Load months'),
+    fetchAll(() => requireSupabase().from('rules').select('*').order('priority', { ascending: false }), 'Load rules'),
+    fetchAll(() => requireSupabase().from('trips').select('*'), 'Load trips'),
+    fetchAll(() => requireSupabase().from('transactions').select('*').order('txn_date', { ascending: true }), 'Load transactions'),
   ]);
 
-  (months.data || []).forEach(row => {
+  months.forEach(row => {
     state.months[row.month_key] = {
       todayBalance: row.today_balance,
       groups: row.groups || [],
@@ -61,7 +77,7 @@ export async function loadState() {
   });
 
   // attach transactions to their month
-  (txns.data || []).forEach(t => {
+  txns.forEach(t => {
     const mk = t.month_key;
     if (!state.months[mk]) state.months[mk] = { todayBalance: null, groups: [], oneTime: [], imported: [] };
     state.months[mk].imported.push({
@@ -76,8 +92,8 @@ export async function loadState() {
     });
   });
 
-  state.rules = (rules.data || []).map(r => [r.keyword, r.line_name, r.source, r.id]);
-  state.trips = (trips.data || []).map(r => ({
+  state.rules = rules.map(r => [r.keyword, r.line_name, r.source, r.id]);
+  state.trips = trips.map(r => ({
     id: r.id, name: r.name, start: r.start_date, end: r.end_date, kind: r.kind,
   }));
 
@@ -89,7 +105,9 @@ export async function loadState() {
 let saveTimer = null;
 export function scheduleSave(state) {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => flushSave(state), 600);
+  saveTimer = setTimeout(() => {
+    flushSave(state).catch(err => console.error('Save failed', err));
+  }, 600);
 }
 
 export async function flushSave(state) {
@@ -103,44 +121,96 @@ export async function flushSave(state) {
     groups: m.groups || [], one_time: m.oneTime || [],
     updated_at: new Date().toISOString(),
   }));
-  if (monthRows.length) await requireSupabase().from('months').upsert(monthRows);
+  if (monthRows.length) assertOk(await requireSupabase().from('months').upsert(monthRows), 'Save months');
 
-  // transactions: upsert those with _id, insert those without
+  const transactionRows = [];
+  const txRefs = new Map();
   for (const [key, m] of Object.entries(state.months)) {
     for (const t of (m.imported || [])) {
-      const row = {
+      const importKey = txnImportKey(t);
+      transactionRows.push({
         household_id: hid, month_key: key, source: t.source || 'chase',
         txn_date: normDate(t.date), description: t.desc, amount: t.amount,
         txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
-        import_key: txnImportKey(t),
-      };
-      if (t._id) { row.id = t._id; await requireSupabase().from('transactions').upsert(row); }
-      else {
-        const { data } = await requireSupabase()
-          .from('transactions')
-          .upsert(row, { onConflict: 'household_id,import_key' })
-          .select('id')
-          .single();
-        if (data) t._id = data.id;
-      }
+        import_key: importKey,
+      });
+      txRefs.set(importKey, t);
     }
   }
+  const savedTxnKeys = await saveTransactions(transactionRows, txRefs);
 
   // rules: replace-all is simplest and safe for this volume
-  await requireSupabase().from('rules').delete().eq('household_id', hid);
+  assertOk(await requireSupabase().from('rules').delete().eq('household_id', hid), 'Clear rules');
   const ruleRows = (state.rules || []).map((r, i) => ({
     household_id: hid, keyword: r[0], line_name: r[1],
     source: r[2] || 'chase', priority: (state.rules.length - i),
   }));
-  if (ruleRows.length) await requireSupabase().from('rules').insert(ruleRows);
+  if (ruleRows.length) assertOk(await requireSupabase().from('rules').insert(ruleRows), 'Save rules');
 
   // trips
-  await requireSupabase().from('trips').delete().eq('household_id', hid);
+  assertOk(await requireSupabase().from('trips').delete().eq('household_id', hid), 'Clear trips');
   const tripRows = (state.trips || []).map(t => ({
     household_id: hid, name: t.name || '', start_date: t.start || null,
     end_date: t.end || null, kind: t.kind || 'personal',
   }));
-  if (tripRows.length) await requireSupabase().from('trips').insert(tripRows);
+  if (tripRows.length) assertOk(await requireSupabase().from('trips').insert(tripRows), 'Save trips');
+  return { transactionsSaved: savedTxnKeys.size };
+}
+
+async function saveTransactions(rows, refsByImportKey) {
+  const saved = new Set();
+  if (!rows.length) return saved;
+
+  const keys = [...new Set(rows.map(r => r.import_key).filter(Boolean))];
+  const existingByKey = new Map();
+  for (let i = 0; i < keys.length; i += 500) {
+    const keyChunk = keys.slice(i, i + 500);
+    const { data } = assertOk(await requireSupabase()
+      .from('transactions')
+      .select('id,import_key')
+      .in('import_key', keyChunk), 'Find existing imported transactions');
+    for (const row of data || []) {
+      if (row.import_key && !existingByKey.has(row.import_key)) existingByKey.set(row.import_key, row.id);
+    }
+  }
+
+  const inserts = [];
+  const updates = [];
+  for (const row of rows) {
+    const id = existingByKey.get(row.import_key);
+    if (id) updates.push({ id, ...row });
+    else inserts.push(row);
+  }
+
+  for (let i = 0; i < updates.length; i += 500) {
+    const chunk = updates.slice(i, i + 500);
+    const { data } = assertOk(await requireSupabase()
+      .from('transactions')
+      .upsert(chunk)
+      .select('id,import_key'), 'Update imported transactions');
+    for (const row of data || []) markSaved(row, saved, refsByImportKey);
+  }
+
+  for (let i = 0; i < inserts.length; i += 500) {
+    const chunk = inserts.slice(i, i + 500);
+    const { data } = assertOk(await requireSupabase()
+      .from('transactions')
+      .insert(chunk)
+      .select('id,import_key'), 'Insert imported transactions');
+    for (const row of data || []) markSaved(row, saved, refsByImportKey);
+  }
+
+  if (saved.size !== rows.length) {
+    throw new Error(`Save imported transactions: Supabase saved ${saved.size} of ${rows.length} transactions`);
+  }
+  return saved;
+}
+
+function markSaved(row, saved, refsByImportKey) {
+  if (!row?.import_key) return;
+  saved.add(row.import_key);
+  const ref = refsByImportKey.get(row.import_key);
+  if (ref) ref._id = row.id;
 }
 
 function normDate(d) {
@@ -163,12 +233,12 @@ function txnImportKey(t) {
 // Delete a single transaction (e.g. clearing an import)
 export async function deleteTxns(monthKey) {
   if (!householdId) return;
-  await requireSupabase().from('transactions').delete()
-    .eq('household_id', householdId).eq('month_key', monthKey);
+  assertOk(await requireSupabase().from('transactions').delete()
+    .eq('household_id', householdId).eq('month_key', monthKey), 'Delete transactions');
 }
 
 export async function deleteTxnIds(ids) {
   if (!householdId || !ids?.length) return;
-  await requireSupabase().from('transactions').delete()
-    .eq('household_id', householdId).in('id', ids);
+  assertOk(await requireSupabase().from('transactions').delete()
+    .eq('household_id', householdId).in('id', ids), 'Delete duplicate transactions');
 }

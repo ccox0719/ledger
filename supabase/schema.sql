@@ -144,9 +144,9 @@ where t.id = r.id
 
 create index if not exists transactions_household_month
   on transactions (household_id, month_key);
+drop index if exists transactions_household_import_key;
 create unique index if not exists transactions_household_import_key
-  on transactions (household_id, import_key)
-  where import_key is not null;
+  on transactions (household_id, import_key);
 
 -- 4) RULES -----------------------------------------------------
 -- Keyword → budget-line mappings (learned over time). source distinguishes card vs checking.
