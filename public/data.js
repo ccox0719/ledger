@@ -92,7 +92,7 @@ export async function loadState() {
       desc: t.description,
       amount: Number(t.amount),
       type: t.txn_type || t.type,
-      source: t.source,
+      source: t.account_name || t.source,
       cat: !t.category || t.category === 'other' ? undefined : t.category,
       workTravel: t.work_travel,
     });
@@ -183,9 +183,11 @@ async function transactionRowsForState(state, monthKeys) {
       const txnDate = normDate(t.date);
       const id = t._id || crypto.randomUUID();
       const category = t.cat ?? 'other';
+      const appSource = t.source || 'chase';
       transactionRows.push({
-        id, household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
-        txn_date: txnDate, date: txnDate, description: t.desc, amount: t.amount,
+        id, household_id: hid, user_id: userId, month_key: key, source: 'manual',
+        account_name: appSource, txn_date: txnDate, date: txnDate,
+        description: t.desc, amount: t.amount,
         type: transactionType(t), txn_type: t.type, category, work_travel: !!t.workTravel,
         import_key: importKey,
       });
