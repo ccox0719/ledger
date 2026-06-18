@@ -119,32 +119,12 @@ export function scheduleSave(state) {
 export async function flushSave(state) {
   if (!householdId) return;
   const hid = householdId;
-  const userId = await getCurrentUserId();
 
   // months (+ their imported txns)
-  const monthRows = Object.entries(state.months).map(([key, m]) => ({
-    household_id: hid, month_key: key,
-    today_balance: m.todayBalance ?? null,
-    groups: m.groups || [], one_time: m.oneTime || [],
-    updated_at: new Date().toISOString(),
-  }));
+  const monthRows = monthRowsForState(state, Object.keys(state.months));
   if (monthRows.length) assertOk(await requireSupabase().from('months').upsert(monthRows), 'Save months');
 
-  const transactionRows = [];
-  const txRefs = new Map();
-  for (const [key, m] of Object.entries(state.months)) {
-    for (const t of (m.imported || [])) {
-      const importKey = txnImportKey(t);
-      const txnDate = normDate(t.date);
-      transactionRows.push({
-        household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
-        txn_date: txnDate, date: txnDate, description: t.desc, amount: t.amount,
-        txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
-        import_key: importKey,
-      });
-      txRefs.set(importKey, t);
-    }
-  }
+  const { transactionRows, txRefs } = await transactionRowsForState(state, Object.keys(state.months));
   const savedTxnKeys = await saveTransactions(transactionRows, txRefs);
 
   // rules: replace-all is simplest and safe for this volume
@@ -163,6 +143,54 @@ export async function flushSave(state) {
   }));
   if (tripRows.length) assertOk(await requireSupabase().from('trips').insert(tripRows), 'Save trips');
   return { transactionsSaved: savedTxnKeys.size };
+}
+
+export async function flushImportSave(state, monthKeys) {
+  if (!householdId) return;
+  const keys = [...new Set((monthKeys || []).filter(key => state.months?.[key]))];
+  if (!keys.length) return { transactionsSaved: 0 };
+
+  const monthRows = monthRowsForState(state, keys);
+  if (monthRows.length) assertOk(await requireSupabase().from('months').upsert(monthRows), 'Save imported months');
+
+  const { transactionRows, txRefs } = await transactionRowsForState(state, keys);
+  const savedTxnKeys = await saveTransactions(transactionRows, txRefs);
+  return { transactionsSaved: savedTxnKeys.size };
+}
+
+function monthRowsForState(state, monthKeys) {
+  const hid = householdId;
+  return monthKeys.map(key => {
+    const m = state.months[key];
+    return {
+      household_id: hid, month_key: key,
+      today_balance: m.todayBalance ?? null,
+      groups: m.groups || [], one_time: m.oneTime || [],
+      updated_at: new Date().toISOString(),
+    };
+  });
+}
+
+async function transactionRowsForState(state, monthKeys) {
+  const hid = householdId;
+  const userId = await getCurrentUserId();
+  const transactionRows = [];
+  const txRefs = new Map();
+  for (const key of monthKeys) {
+    const m = state.months[key];
+    for (const t of (m.imported || [])) {
+      const importKey = txnImportKey(t);
+      const txnDate = normDate(t.date);
+      transactionRows.push({
+        household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
+        txn_date: txnDate, date: txnDate, description: t.desc, amount: t.amount,
+        txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
+        import_key: importKey,
+      });
+      txRefs.set(importKey, t);
+    }
+  }
+  return { transactionRows, txRefs };
 }
 
 async function saveTransactions(rows, refsByImportKey) {
@@ -191,8 +219,8 @@ async function saveTransactions(rows, refsByImportKey) {
     else inserts.push(row);
   }
 
-  for (let i = 0; i < updates.length; i += 500) {
-    const chunk = updates.slice(i, i + 500);
+  for (let i = 0; i < updates.length; i += 100) {
+    const chunk = updates.slice(i, i + 100);
     const { data } = assertOk(await requireSupabase()
       .from('transactions')
       .upsert(chunk)
@@ -200,8 +228,8 @@ async function saveTransactions(rows, refsByImportKey) {
     for (const row of data || []) markSaved(row, saved, refsByImportKey);
   }
 
-  for (let i = 0; i < inserts.length; i += 500) {
-    const chunk = inserts.slice(i, i + 500);
+  for (let i = 0; i < inserts.length; i += 100) {
+    const chunk = inserts.slice(i, i + 100);
     const { data } = assertOk(await requireSupabase()
       .from('transactions')
       .insert(chunk)

@@ -1,5 +1,5 @@
 // app.js — The Ledger (Supabase-backed)
-import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, deleteTxns, deleteTxnIds } from './data.js';
+import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds } from './data.js';
 
 // ---- Global app state (was localStorage-backed, now Supabase) ----
 let state = { months:{}, rules:[], trips:[] };
@@ -1224,8 +1224,8 @@ function handleCSV(e){
       }
       const dupes=normalizeImportedState();
       if(dupes.length) await deleteTxnIds(dupes);
-      setImportStatus('Saving imported transactions...');
-      const saved = await flushSave(state);
+      setImportStatus(`Saving imported transactions in batches...`);
+      const saved = await flushImportSave(state,touched);
       if(!touched.includes(cursor) && touched.length) cursor=touched[touched.length-1];
       view='compare';
       const msg=`Imported ${added} new and matched ${updated} existing ${src==='usbank'?'US Bank':'Chase'} transactions across ${touched.length} month${touched.length===1?'':'s'}; Supabase confirmed ${saved?.transactionsSaved??0} saved transaction${saved?.transactionsSaved===1?'':'s'}${skipped?`; skipped ${skipped} rows without usable dates`:''}.`;
