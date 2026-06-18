@@ -60,6 +60,7 @@ alter table months
 create table if not exists transactions (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references households(id) on delete cascade,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   month_key text not null,                  -- which budget month it belongs to
   source text not null default 'chase',     -- 'chase' | 'usbank'
   txn_date date,
@@ -73,6 +74,7 @@ create table if not exists transactions (
 );
 alter table transactions
   add column if not exists household_id uuid references households(id) on delete cascade,
+  add column if not exists user_id uuid default auth.uid() references auth.users(id) on delete cascade,
   add column if not exists month_key text,
   add column if not exists source text not null default 'chase',
   add column if not exists txn_date date,

@@ -37,9 +37,11 @@ async function fetchAll(makeQuery, action, pageSize = 1000) {
 }
 
 let householdId = null;
+let currentUserId = null;
 
 export async function getSession() {
   const { data } = await requireSupabase().auth.getSession();
+  currentUserId = data.session?.user?.id || null;
   return data.session;
 }
 export async function signIn(email, password) {
@@ -48,6 +50,8 @@ export async function signIn(email, password) {
 export async function signOut() { return requireSupabase().auth.signOut(); }
 
 export async function resolveHousehold() {
+  const session = await getSession();
+  currentUserId = session?.user?.id || null;
   const { data } = assertOk(await requireSupabase()
     .from('household_members').select('household_id').limit(1).maybeSingle(), 'Load household');
   householdId = data?.household_id || null;
@@ -113,6 +117,7 @@ export function scheduleSave(state) {
 export async function flushSave(state) {
   if (!householdId) return;
   const hid = householdId;
+  const userId = await getCurrentUserId();
 
   // months (+ their imported txns)
   const monthRows = Object.entries(state.months).map(([key, m]) => ({
@@ -129,7 +134,7 @@ export async function flushSave(state) {
     for (const t of (m.imported || [])) {
       const importKey = txnImportKey(t);
       transactionRows.push({
-        household_id: hid, month_key: key, source: t.source || 'chase',
+        household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
         txn_date: normDate(t.date), description: t.desc, amount: t.amount,
         txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
         import_key: importKey,
@@ -159,9 +164,10 @@ export async function flushSave(state) {
 
 async function saveTransactions(rows, refsByImportKey) {
   const saved = new Set();
-  if (!rows.length) return saved;
+  const uniqueRows = [...new Map(rows.map(row => [row.import_key, row])).values()];
+  if (!uniqueRows.length) return saved;
 
-  const keys = [...new Set(rows.map(r => r.import_key).filter(Boolean))];
+  const keys = [...new Set(uniqueRows.map(r => r.import_key).filter(Boolean))];
   const existingByKey = new Map();
   for (let i = 0; i < keys.length; i += 500) {
     const keyChunk = keys.slice(i, i + 500);
@@ -176,7 +182,7 @@ async function saveTransactions(rows, refsByImportKey) {
 
   const inserts = [];
   const updates = [];
-  for (const row of rows) {
+  for (const row of uniqueRows) {
     const id = existingByKey.get(row.import_key);
     if (id) updates.push({ id, ...row });
     else inserts.push(row);
@@ -200,10 +206,18 @@ async function saveTransactions(rows, refsByImportKey) {
     for (const row of data || []) markSaved(row, saved, refsByImportKey);
   }
 
-  if (saved.size !== rows.length) {
-    throw new Error(`Save imported transactions: Supabase saved ${saved.size} of ${rows.length} transactions`);
+  if (saved.size !== uniqueRows.length) {
+    throw new Error(`Save imported transactions: Supabase saved ${saved.size} of ${uniqueRows.length} transactions`);
   }
   return saved;
+}
+
+async function getCurrentUserId() {
+  if (currentUserId) return currentUserId;
+  const session = await getSession();
+  currentUserId = session?.user?.id || null;
+  if (!currentUserId) throw new Error('Save failed: no signed-in Supabase user found.');
+  return currentUserId;
 }
 
 function markSaved(row, saved, refsByImportKey) {
