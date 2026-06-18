@@ -62,7 +62,7 @@ create table if not exists transactions (
   user_id uuid not null references auth.users(id) on delete cascade,
   date text not null,
   description text not null default '',
-  amount numeric not null default 0,
+  amount numeric not null default 0 check (amount >= 0),
   type text not null default 'expense',
   category text not null default 'other',
   source text not null default 'manual',

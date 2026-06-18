@@ -90,7 +90,7 @@ export async function loadState() {
       _id: t.id,
       date: t.txn_date || t.date,
       desc: t.description,
-      amount: Number(t.amount),
+      amount: appAmountFromTransactionRow(t),
       type: t.txn_type || t.type,
       source: t.account_name || t.source,
       cat: !t.category || t.category === 'other' ? undefined : t.category,
@@ -187,7 +187,7 @@ async function transactionRowsForState(state, monthKeys) {
       transactionRows.push({
         id, household_id: hid, user_id: userId, month_key: key, source: 'manual',
         account_name: appSource, txn_date: txnDate, date: txnDate,
-        description: t.desc, amount: t.amount,
+        description: t.desc, amount: Math.abs(Number(t.amount || 0)),
         type: transactionType(t), txn_type: t.type, category, work_travel: !!t.workTravel,
         import_key: importKey,
       });
@@ -283,6 +283,15 @@ function transactionType(t) {
   const raw = String(t.type || '').toLowerCase();
   if (raw.includes('credit') || Number(t.amount) > 0) return 'income';
   return 'expense';
+}
+
+function appAmountFromTransactionRow(t) {
+  const amount = Number(t.amount || 0);
+  if (amount < 0) return amount;
+  const rowType = String(t.type || '').toLowerCase();
+  const txnType = String(t.txn_type || '').toLowerCase();
+  if (rowType === 'expense' || txnType.includes('sale') || txnType.includes('debit')) return -amount;
+  return amount;
 }
 
 // Delete a single transaction (e.g. clearing an import)
