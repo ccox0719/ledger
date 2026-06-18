@@ -58,14 +58,14 @@ alter table months
 -- 3) TRANSACTIONS ----------------------------------------------
 -- Imported CSV rows (Chase card + US Bank checking). The data you can't recreate.
 create table if not exists transactions (
-  id text primary key,
+  id text,
   user_id uuid not null references auth.users(id) on delete cascade,
   date text not null,
   description text not null default '',
   amount numeric not null default 0 check (amount >= 0),
   type text not null default 'expense',
   category text not null default 'other',
-  source text not null default 'manual',
+  source text not null default 'manual' check (source = any (array['manual'::text, 'csv'::text])),
   account_name text,
   notes text not null default '',
   review_status text not null default 'reviewed',
@@ -77,7 +77,8 @@ create table if not exists transactions (
   txn_type text,                            -- raw type from CSV
   import_key text,                          -- stable duplicate key from imported CSV fields
   work_travel boolean not null default false,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  primary key (id, user_id)
 );
 alter table transactions
   add column if not exists user_id uuid references auth.users(id) on delete cascade,

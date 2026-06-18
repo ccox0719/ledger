@@ -185,7 +185,7 @@ async function transactionRowsForState(state, monthKeys) {
       const category = t.cat ?? 'other';
       const appSource = t.source || 'chase';
       transactionRows.push({
-        id, household_id: hid, user_id: userId, month_key: key, source: 'manual',
+        id, household_id: hid, user_id: userId, month_key: key, source: 'csv',
         account_name: appSource, txn_date: txnDate, date: txnDate,
         description: t.desc, amount: Math.abs(Number(t.amount || 0)),
         type: transactionType(t), txn_type: t.type, category, work_travel: !!t.workTravel,
