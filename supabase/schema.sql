@@ -58,38 +58,45 @@ alter table months
 -- 3) TRANSACTIONS ----------------------------------------------
 -- Imported CSV rows (Chase card + US Bank checking). The data you can't recreate.
 create table if not exists transactions (
-  id uuid primary key default gen_random_uuid(),
-  household_id uuid not null references households(id) on delete cascade,
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  month_key text not null,                  -- which budget month it belongs to
-  source text not null default 'chase',     -- 'chase' | 'usbank'
+  id text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date text not null,
+  description text not null default '',
+  amount numeric not null default 0,
+  type text not null default 'expense',
+  category text not null default 'other',
+  source text not null default 'manual',    -- 'chase' | 'usbank' | 'manual'
+  notes text not null default '',
+  review_status text not null default 'reviewed',
+  classification_source text not null default 'legacy',
+  updated_at timestamptz not null default now(),
+  household_id uuid references households(id) on delete cascade,
+  month_key text,                           -- which budget month it belongs to
   txn_date date,
-  date date,
-  description text not null,
-  amount numeric not null,                  -- negative = charge/debit, positive = credit
   txn_type text,                            -- raw type from CSV
   import_key text,                          -- stable duplicate key from imported CSV fields
-  category text,                            -- assigned budget line (null = uncategorized)
   work_travel boolean not null default false,
   created_at timestamptz not null default now()
 );
 alter table transactions
+  add column if not exists user_id uuid references auth.users(id) on delete cascade,
+  add column if not exists date text,
+  add column if not exists type text not null default 'expense',
+  add column if not exists notes text not null default '',
+  add column if not exists review_status text not null default 'reviewed',
+  add column if not exists classification_source text not null default 'legacy',
+  add column if not exists updated_at timestamptz not null default now(),
   add column if not exists household_id uuid references households(id) on delete cascade,
-  add column if not exists user_id uuid default auth.uid() references auth.users(id) on delete cascade,
   add column if not exists month_key text,
   add column if not exists source text not null default 'chase',
   add column if not exists txn_date date,
-  add column if not exists date date,
   add column if not exists description text,
   add column if not exists amount numeric,
   add column if not exists txn_type text,
   add column if not exists import_key text,
-  add column if not exists category text,
+  add column if not exists category text not null default 'other',
   add column if not exists work_travel boolean not null default false,
   add column if not exists created_at timestamptz not null default now();
-
-alter table transactions
-  alter column id set default gen_random_uuid();
 
 update transactions
 set import_key = concat(

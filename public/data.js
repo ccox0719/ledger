@@ -91,9 +91,9 @@ export async function loadState() {
       date: t.txn_date || t.date,
       desc: t.description,
       amount: Number(t.amount),
-      type: t.txn_type,
+      type: t.txn_type || t.type,
       source: t.source,
-      cat: t.category === null ? undefined : t.category,
+      cat: !t.category || t.category === 'other' ? undefined : t.category,
       workTravel: t.work_travel,
     });
   });
@@ -182,10 +182,11 @@ async function transactionRowsForState(state, monthKeys) {
       const importKey = txnImportKey(t);
       const txnDate = normDate(t.date);
       const id = t._id || crypto.randomUUID();
+      const category = t.cat ?? 'other';
       transactionRows.push({
         id, household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
         txn_date: txnDate, date: txnDate, description: t.desc, amount: t.amount,
-        txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
+        type: transactionType(t), txn_type: t.type, category, work_travel: !!t.workTravel,
         import_key: importKey,
       });
       txRefs.set(importKey, t);
@@ -274,6 +275,12 @@ function txnImportKey(t) {
   const amount = Number(t.amount || 0).toFixed(2);
   const type = String(t.type || '').toUpperCase().trim();
   return [source, date, desc, amount, type].join('|');
+}
+
+function transactionType(t) {
+  const raw = String(t.type || '').toLowerCase();
+  if (raw.includes('credit') || Number(t.amount) > 0) return 'income';
+  return 'expense';
 }
 
 // Delete a single transaction (e.g. clearing an import)
