@@ -88,6 +88,9 @@ alter table transactions
   add column if not exists work_travel boolean not null default false,
   add column if not exists created_at timestamptz not null default now();
 
+alter table transactions
+  alter column id set default gen_random_uuid();
+
 update transactions
 set import_key = concat(
   coalesce(source, 'chase'), '|',

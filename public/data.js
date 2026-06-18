@@ -181,8 +181,9 @@ async function transactionRowsForState(state, monthKeys) {
     for (const t of (m.imported || [])) {
       const importKey = txnImportKey(t);
       const txnDate = normDate(t.date);
+      const id = t._id || crypto.randomUUID();
       transactionRows.push({
-        household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
+        id, household_id: hid, user_id: userId, month_key: key, source: t.source || 'chase',
         txn_date: txnDate, date: txnDate, description: t.desc, amount: t.amount,
         txn_type: t.type, category: t.cat ?? null, work_travel: !!t.workTravel,
         import_key: importKey,
