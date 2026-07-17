@@ -471,21 +471,18 @@ async function openWhatIf(m){
 }
 
 async function openBalanceUpdate(){
-  const f=state.finance, checking=f.accounts.checking, brokerage=f.accounts.brokerage;
+  const f=state.finance, checking=f.accounts.checking;
   const values=await openModal({
-    title:'Update account balances',
-    message:'Use the balances currently shown by the bank and brokerage. A dated checkpoint is kept so both views recalculate from the same numbers.',
-    confirmText:'Save balances',
+    title:'Update bank balance',
+    message:'Enter the current checking balance shown by the bank. The upcoming list will recalculate automatically.',
+    confirmText:'Update balance',
     fields:[
       {name:'checking',label:'Checking balance',type:'number',value:checking.balance,step:'0.01'},
-      {name:'brokerage',label:'Brokerage emergency fund',type:'number',value:brokerage.balance,step:'0.01',min:'0'},
-      {name:'date',label:'Balance effective date',type:'date',value:localISO()},
-      {name:'note',label:'Optional note',placeholder:'Bank balance update'},
     ],
   });
   if(!values)return;
-  const date=values.date||localISO(), note=values.note.trim();
-  const checkingValue=Number(values.checking), brokerageValue=Number(values.brokerage);
+  const date=localISO(), note='Bank balance update';
+  const checkingValue=Number(values.checking);
   try{
     if(Number.isFinite(checkingValue)&&checkingValue!==checking.balance){
       const saved=await updateAccountBalance('checking',checkingValue,date,note);
@@ -493,10 +490,6 @@ async function openBalanceUpdate(){
       const key=monthKey(parseISODate(date));
       ensureMonth(key).todayBalance=checkingValue;
       save();
-    }
-    if(Number.isFinite(brokerageValue)&&brokerageValue!==brokerage.balance){
-      const saved=await updateAccountBalance('brokerage',brokerageValue,date,note);
-      f.accounts.brokerage=saved.account; f.snapshots.unshift(saved.snapshot);
     }
     renderOverview();
   }catch(err){await noticeModal('Balance update failed',err.message||String(err));}
@@ -594,48 +587,34 @@ function renderOverview(){
   const statusText=overdraft?'Overdraft projected':below?'Transfer may be needed':`Safe above ${moneyS(s.minimumChecking)}`;
   const recommended=below?Math.max(0,Math.ceil((s.targetChecking-forecast.low.balance)/100)*100):0;
   const suggestedDate=localISO(addDays(parseISODate(forecast.low.date),-3))<localISO()?localISO():localISO(addDays(parseISODate(forecast.low.date),-3));
-  const activeTransfers=f.transfers.filter(t=>t.status!=='cancelled').sort((a,b)=>a.date.localeCompare(b.date));
-  const upcoming=forecast.timeline.slice(0,12);
-  const monthly=new Map();
-  forecast.timeline.forEach(e=>{
-    const key=e.key;
-    if(!monthly.has(key))monthly.set(key,{low:e.balance,end:e.balance,lowDate:e.dateISO});
-    const m=monthly.get(key); m.end=e.balance;
-    if(e.balance<m.low){m.low=e.balance;m.lowDate=e.dateISO;}
-  });
+  const upcoming=forecast.timeline.slice(0,60);
+  const moneyIn=forecast.timeline.reduce((n,e)=>n+(e.delta>0?e.delta:0),0);
+  const moneyOut=forecast.timeline.reduce((n,e)=>n+(e.delta<0?Math.abs(e.delta):0),0);
   c.innerHTML=`
     <section class="safety-hero ${status}">
-      <div><div class="eyebrow">Household cash safety</div><h2>${statusText}</h2>
+      <div><div class="eyebrow">Checking account forecast</div><h2>${statusText}</h2>
         <p>${below?`Projected low ${money(forecast.low.balance)} on ${displayDate(forecast.low.date)} after ${esc(forecast.low.desc)}.`:`Lowest projected balance is ${money(forecast.low.balance)} on ${displayDate(forecast.low.date)}.`}</p></div>
-      <div class="safety-actions"><button id="updateBalances" class="primary-action">Update balances</button><button id="safetySettings">Settings</button></div>
+      <div class="safety-actions"><button id="updateBalances" class="primary-action">Update bank balance</button></div>
     </section>
     <div class="range-switch" aria-label="Forecast range">${[1,3,6,12].map(n=>`<button data-range="${n}" class="${s.forecastMonths===n?'on':''}">${n===1?'30 days':n===3?'90 days':n+' months'}</button>`).join('')}</div>
-    <div class="safety-grid">
-      <article class="safety-card"><span>Checking now</span><strong>${money(f.accounts.checking.balance)}</strong><small>Shared balance checkpoint</small></article>
-      <article class="safety-card ${below?'attention':''}"><span>Lowest projected</span><strong>${money(forecast.low.balance)}</strong><small>${displayDate(forecast.low.date,{month:'short',day:'numeric',year:'numeric'})}</small></article>
-      <article class="safety-card"><span>Emergency fund</span><strong>${money(f.accounts.brokerage.balance)}</strong><small>${money(forecast.projectedBrokerage)} after planned transfers</small></article>
-      <article class="safety-card"><span>Projected ending</span><strong>${money(forecast.endBalance)}</strong><small>${s.forecastMonths===1?'30-day':s.forecastMonths===3?'90-day':s.forecastMonths+'-month'} view</small></article>
+    <div class="safety-grid simple">
+      <article class="safety-card"><span>Balance now</span><strong>${money(f.accounts.checking.balance)}</strong></article>
+      <article class="safety-card"><span>Money in</span><strong class="positive">${money(moneyIn)}</strong></article>
+      <article class="safety-card"><span>Money out</span><strong>${money(moneyOut)}</strong></article>
+      <article class="safety-card ${below?'attention':''}"><span>Lowest balance</span><strong>${money(forecast.low.balance)}</strong><small>${displayDate(forecast.low.date,{month:'short',day:'numeric'})}</small></article>
     </div>
-    ${below?`<section class="transfer-callout"><div><b>Suggested brokerage transfer: ${moneyS(recommended)}</b><span>Expected in checking by ${displayDate(suggestedDate)} to restore the ${moneyS(s.targetChecking)} cushion.</span></div><button id="planSuggested">Plan transfer</button></section>`:''}
-    <div class="overview-actions"><button id="addUpcoming">+ Add upcoming money</button><button id="planTransfer">↔ Plan brokerage transfer</button></div>
-    <section class="overview-section"><div class="section-title"><h3>Months ahead</h3><span>${monthly.size} months in view</span></div>
-      <div class="month-strip">${[...monthly].map(([key,m])=>`<button data-open-month="${key}" class="month-peek ${m.low<s.minimumChecking?'low':''}"><span>${monAbbr(key)}</span><b>${moneyS(m.low)}</b><small>low · ends ${moneyS(m.end)}</small></button>`).join('')||'<p class="empty-state">Add future income and bills to build the forecast.</p>'}</div></section>
-    <section class="overview-section"><div class="section-title"><h3>Coming up</h3><span>Tap Cash flow for full detail</span></div>
-      <div class="upcoming-list">${upcoming.map(e=>`<div class="upcoming-row"><time>${displayDate(e.dateISO)}</time><span>${esc(e.desc)}<small>${esc(e.grp)}</small></span><b class="${e.delta>0?'positive':''}">${e.delta>0?'+':'−'}${moneyS(Math.abs(e.delta))}</b><em>${moneyS(e.balance)}</em></div>`).join('')||'<p class="empty-state">No scheduled activity in this range.</p>'}</div></section>
-    <section class="overview-section"><div class="section-title"><h3>Brokerage transfers</h3><span>Not counted as income</span></div>
-      <div class="transfer-list">${activeTransfers.map(t=>`<div class="transfer-row"><span data-edit-transfer="${t.id}" title="Edit transfer"><b>${money(t.amount)}</b><small>${displayDate(t.date)} · ${esc(t.note||'Emergency-fund transfer')}</small></span><select data-transfer-status="${t.id}"><option value="planned" ${t.status==='planned'?'selected':''}>Planned</option><option value="initiated" ${t.status==='initiated'?'selected':''}>Initiated</option><option value="completed" ${t.status==='completed'?'selected':''}>Completed</option><option value="cancelled">Cancel</option></select></div>`).join('')||'<p class="empty-state">No brokerage transfers planned.</p>'}</div></section>`;
+    ${below?`<section class="transfer-callout"><div><b>${moneyS(recommended)} transfer may be needed</b><span>Move it from the emergency fund by ${displayDate(suggestedDate)} to restore the ${moneyS(s.targetChecking)} cushion.</span></div><button id="planSuggested">Add transfer</button></section>`:''}
+    <div class="overview-actions"><button id="addUpcoming">+ Add money in or out</button></div>
+    <section class="overview-section"><div class="section-title"><h3>Upcoming money in and out</h3><span>Projected ending: ${money(forecast.endBalance)}</span></div>
+      <div class="cash-list-head"><span>Date</span><span>Item</span><span>In</span><span>Out</span><span>Balance</span></div>
+      <div class="upcoming-list">${upcoming.map(e=>`<div class="upcoming-row simple"><time>${displayDate(e.dateISO)}</time><span>${esc(e.desc)}</span><b class="positive">${e.delta>0?moneyS(e.delta):''}</b><b>${e.delta<0?moneyS(Math.abs(e.delta)):''}</b><em class="${e.balance<s.minimumChecking?'low-balance':''}">${moneyS(e.balance)}</em></div>`).join('')||'<p class="empty-state">No scheduled money in or out in this range.</p>'}</div></section>`;
   c.querySelector('#updateBalances').onclick=openBalanceUpdate;
-  c.querySelector('#safetySettings').onclick=openSafetySettings;
   c.querySelector('#addUpcoming').onclick=openQuickEvent;
-  c.querySelector('#planTransfer').onclick=()=>openPlanTransfer();
   c.querySelector('#planSuggested')?.addEventListener('click',()=>openPlanTransfer(recommended,suggestedDate));
   c.querySelectorAll('[data-range]').forEach(b=>b.onclick=async()=>{
     s.forecastMonths=Number(b.dataset.range);
     try{s.forecastMonths=(await updateCashSettings(s)).forecastMonths;renderOverview();}catch(err){noticeModal('Range could not be saved',err.message||String(err));}
   });
-  c.querySelectorAll('[data-open-month]').forEach(b=>b.onclick=()=>{cursor=b.dataset.openMonth;view='flow';render();});
-  c.querySelectorAll('[data-edit-transfer]').forEach(el=>el.onclick=()=>openEditTransfer(el.dataset.editTransfer));
-  c.querySelectorAll('[data-transfer-status]').forEach(el=>el.onchange=()=>changeTransferStatus(el.dataset.transferStatus,el.value));
 }
 
 function render(){

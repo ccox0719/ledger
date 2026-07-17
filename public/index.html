@@ -54,10 +54,10 @@
   .overview-actions{display:flex;gap:8px;margin-bottom:18px;}.overview-actions button{flex:1;}
   .overview-section{margin-bottom:18px;}.section-title{display:flex;align-items:baseline;justify-content:space-between;margin:0 3px 8px;}.section-title h3{font-size:.83rem;text-transform:uppercase;letter-spacing:.8px;color:var(--amber);}.section-title span{font-size:.67rem;color:var(--text-dim);}
   .month-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}.month-peek{background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;text-align:left;cursor:pointer;}.month-peek.low{border-color:var(--amber);}.month-peek span,.month-peek small{display:block;color:var(--text-dim);font-size:.64rem;}.month-peek b{display:block;font:700 .94rem var(--mono);margin:3px 0;}
-  .upcoming-list,.transfer-list{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);overflow:hidden;}.upcoming-row{display:grid;grid-template-columns:58px minmax(120px,1fr) 82px 82px;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:.78rem;}.upcoming-row:last-child{border-bottom:0}.upcoming-row time{font:600 .68rem var(--mono);color:var(--text-dim);}.upcoming-row span small{display:block;color:var(--text-dim);font-size:.62rem;}.upcoming-row b,.upcoming-row em{font:normal .76rem var(--mono);text-align:right;}.upcoming-row b.positive{color:var(--mint);}.upcoming-row em{color:var(--text-dim);font-style:normal;}
+  .upcoming-list,.transfer-list{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);overflow:hidden;}.upcoming-row{display:grid;grid-template-columns:58px minmax(120px,1fr) 82px 82px;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:.78rem;}.upcoming-row.simple,.cash-list-head{grid-template-columns:68px minmax(140px,1fr) 75px 75px 82px;}.cash-list-head{display:grid;gap:9px;padding:0 11px 6px;color:var(--text-dim);font-size:.62rem;text-transform:uppercase;letter-spacing:.5px;}.cash-list-head span:nth-child(n+3){text-align:right;}.upcoming-row:last-child{border-bottom:0}.upcoming-row time{font:600 .68rem var(--mono);color:var(--text-dim);}.upcoming-row span small{display:block;color:var(--text-dim);font-size:.62rem;}.upcoming-row b,.upcoming-row em{font:normal .76rem var(--mono);text-align:right;}.upcoming-row b.positive,.safety-card strong.positive{color:var(--mint);}.upcoming-row em{color:var(--text-dim);font-style:normal;}.upcoming-row em.low-balance{color:var(--amber);font-weight:700;}
   .transfer-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);}.transfer-row:last-child{border-bottom:0}.transfer-row span b,.transfer-row span small{display:block;}.transfer-row span b{font-family:var(--mono);}.transfer-row span small{font-size:.67rem;color:var(--text-dim);}.transfer-row select,.modal-field select{background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:7px;}.empty-state{color:var(--text-dim);font-size:.78rem;padding:14px;}
   .transfer-row [data-edit-transfer]{cursor:pointer;min-width:0;}
-  @media(max-width:700px){.safety-hero{align-items:flex-start;flex-direction:column}.safety-actions{width:100%}.safety-actions button{flex:1}.safety-grid{grid-template-columns:1fr 1fr}.month-strip{grid-template-columns:1fr 1fr}.upcoming-row{grid-template-columns:48px minmax(90px,1fr) 72px}.upcoming-row em{display:none}.tabs{overflow-x:auto}.tabs button{min-width:82px;font-size:.76rem}.transfer-callout{align-items:flex-start;flex-direction:column}.transfer-callout button{width:100%}}
+  @media(max-width:700px){.safety-hero{align-items:flex-start;flex-direction:column}.safety-actions{width:100%}.safety-actions button{flex:1}.safety-grid{grid-template-columns:1fr 1fr}.month-strip{grid-template-columns:1fr 1fr}.upcoming-row.simple,.cash-list-head{grid-template-columns:55px minmax(90px,1fr) 64px 64px}.upcoming-row.simple em,.cash-list-head span:last-child{display:none}.tabs{overflow-x:auto}.tabs button{min-width:82px;font-size:.76rem}.transfer-callout{align-items:flex-start;flex-direction:column}.transfer-callout button{width:100%}}
 
   .balance-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
   .bcard{background:linear-gradient(135deg,var(--surface-2),var(--surface));border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;}
@@ -286,23 +286,23 @@
 <div id="appRoot">
 <div class="wrap">
   <button class="signout" onclick="window._signout&&window._signout()">Sign out</button>
-  <nav class="app-menu" aria-label="App menu">
+  <nav class="app-menu" aria-label="App menu" style="display:none">
     <a class="on" href="index.html">Budget</a>
     <a href="retirement.html">Retirement</a>
   </nav>
   <header>
-    <div class="brand"><h1>The Ledger</h1><span class="tag">plan it · watch it clear</span></div>
-    <div class="month-nav"><button id="prevMonth">‹</button><span class="label" id="monthLabel"></span><button id="nextMonth">›</button></div>
+    <div class="brand"><h1>The Ledger</h1><span class="tag">money in · money out · what remains</span></div>
+    <div class="month-nav" style="display:none"><button id="prevMonth">‹</button><span class="label" id="monthLabel"></span><button id="nextMonth">›</button></div>
   </header>
-  <div class="tabs"><button id="tabOverview" class="on">Overview</button><button id="tabFlow">Cash flow</button><button id="tabBudget">Budget</button><button id="tabCompare">Import</button><button id="tabYear">Year</button><button id="tabTravel">Travel</button></div>
+  <div class="tabs" style="display:none"><button id="tabOverview" class="on">Overview</button><button id="tabFlow">Cash flow</button><button id="tabBudget">Budget</button><button id="tabCompare">Import</button><button id="tabYear">Year</button><button id="tabTravel">Travel</button></div>
   <div id="overviewView"></div>
-  <div id="flowView"></div>
+  <div id="flowView" style="display:none"></div>
   <div id="budgetView" style="display:none"></div>
   <div id="compareView" style="display:none"></div>
   <div id="yearView" style="display:none"></div>
   <div id="travelView" style="display:none"></div>
   <button class="reset" id="resetBtn">Reset this month to defaults</button>
-  <div class="small-note">Synced to your household. Transfers (savings, card payment) drain the balance but are tracked separately from spending.</div>
+  <div class="small-note">Changes are saved to your shared household account automatically.</div>
 </div>
 </div>
 <div id="modalRoot"></div>
