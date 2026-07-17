@@ -1,0 +1,29 @@
+PUSH THE LEDGER TO GITHUB
+=========================
+
+Run these commands in the VS Code terminal:
+
+cd "C:\Users\ccox0\OneDrive\Documents\ledger"
+npm run build
+git status
+git add .
+git commit -m "Add shared cash safety overview"
+git push
+
+
+IF THIS IS A NEW BRANCH
+-----------------------
+
+If regular "git push" tells you to set an upstream branch, run the command it
+suggests. It will look similar to:
+
+git push -u origin your-branch-name
+
+
+NEXT TIME
+---------
+
+git add .
+git commit -m "Describe what changed"
+git push
+

@@ -31,13 +31,42 @@
   .tabs button{flex:1;background:none;border:none;color:var(--text-dim);padding:9px;border-radius:8px;cursor:pointer;font-size:.9rem;font-weight:600;}
   .tabs button.on{background:var(--amber);color:#2a1f0e;}
 
+  .safety-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;border:1px solid var(--mint);background:linear-gradient(135deg,rgba(111,184,154,.14),var(--surface));border-radius:var(--radius);padding:20px;margin-bottom:12px;}
+  .safety-hero.caution{border-color:var(--amber);background:linear-gradient(135deg,rgba(224,164,88,.14),var(--surface));}
+  .safety-hero.danger{border-color:var(--red);background:linear-gradient(135deg,rgba(207,107,91,.15),var(--surface));}
+  .safety-hero .eyebrow{font-size:.66rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;font-weight:800;}
+  .safety-hero h2{font-size:1.35rem;margin:3px 0;}
+  .safety-hero p{font-size:.82rem;color:var(--text-dim);}
+  .safety-actions{display:flex;gap:7px;flex-shrink:0;}
+  .safety-actions button,.overview-actions button,.transfer-callout button{border:1px solid var(--line);background:var(--surface-2);color:var(--text);border-radius:8px;padding:9px 12px;cursor:pointer;font-weight:700;font-size:.76rem;}
+  .safety-actions .primary-action,.transfer-callout button{background:var(--amber);border-color:var(--amber);color:#2a1f0e;}
+  .range-switch{display:flex;gap:5px;background:var(--surface);border:1px solid var(--line);padding:4px;border-radius:10px;margin-bottom:12px;}
+  .range-switch button{flex:1;border:0;background:transparent;color:var(--text-dim);border-radius:7px;padding:7px;cursor:pointer;font-size:.74rem;font-weight:700;}
+  .range-switch button.on{background:var(--surface-3);color:var(--amber-bright);}
+  .safety-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:12px;}
+  .safety-card{background:linear-gradient(135deg,var(--surface-2),var(--surface));border:1px solid var(--line);border-radius:var(--radius);padding:13px;min-width:0;}
+  .safety-card.attention{border-color:var(--amber);}
+  .safety-card span,.safety-card small{display:block;color:var(--text-dim);font-size:.66rem;}
+  .safety-card span{text-transform:uppercase;letter-spacing:.45px;}
+  .safety-card strong{display:block;font:700 1.2rem var(--mono);margin:4px 0;white-space:nowrap;}
+  .transfer-callout{display:flex;justify-content:space-between;align-items:center;gap:15px;border:1px solid var(--amber);background:rgba(224,164,88,.09);border-radius:var(--radius);padding:13px 15px;margin-bottom:12px;}
+  .transfer-callout b,.transfer-callout span{display:block;}.transfer-callout b{color:var(--amber-bright);}.transfer-callout span{color:var(--text-dim);font-size:.75rem;margin-top:2px;}
+  .overview-actions{display:flex;gap:8px;margin-bottom:18px;}.overview-actions button{flex:1;}
+  .overview-section{margin-bottom:18px;}.section-title{display:flex;align-items:baseline;justify-content:space-between;margin:0 3px 8px;}.section-title h3{font-size:.83rem;text-transform:uppercase;letter-spacing:.8px;color:var(--amber);}.section-title span{font-size:.67rem;color:var(--text-dim);}
+  .month-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}.month-peek{background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;text-align:left;cursor:pointer;}.month-peek.low{border-color:var(--amber);}.month-peek span,.month-peek small{display:block;color:var(--text-dim);font-size:.64rem;}.month-peek b{display:block;font:700 .94rem var(--mono);margin:3px 0;}
+  .upcoming-list,.transfer-list{border:1px solid var(--line);background:var(--surface);border-radius:var(--radius);overflow:hidden;}.upcoming-row{display:grid;grid-template-columns:58px minmax(120px,1fr) 82px 82px;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--line);font-size:.78rem;}.upcoming-row:last-child{border-bottom:0}.upcoming-row time{font:600 .68rem var(--mono);color:var(--text-dim);}.upcoming-row span small{display:block;color:var(--text-dim);font-size:.62rem;}.upcoming-row b,.upcoming-row em{font:normal .76rem var(--mono);text-align:right;}.upcoming-row b.positive{color:var(--mint);}.upcoming-row em{color:var(--text-dim);font-style:normal;}
+  .transfer-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);}.transfer-row:last-child{border-bottom:0}.transfer-row span b,.transfer-row span small{display:block;}.transfer-row span b{font-family:var(--mono);}.transfer-row span small{font-size:.67rem;color:var(--text-dim);}.transfer-row select,.modal-field select{background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:7px;}.empty-state{color:var(--text-dim);font-size:.78rem;padding:14px;}
+  .transfer-row [data-edit-transfer]{cursor:pointer;min-width:0;}
+  @media(max-width:700px){.safety-hero{align-items:flex-start;flex-direction:column}.safety-actions{width:100%}.safety-actions button{flex:1}.safety-grid{grid-template-columns:1fr 1fr}.month-strip{grid-template-columns:1fr 1fr}.upcoming-row{grid-template-columns:48px minmax(90px,1fr) 72px}.upcoming-row em{display:none}.tabs{overflow-x:auto}.tabs button{min-width:82px;font-size:.76rem}.transfer-callout{align-items:flex-start;flex-direction:column}.transfer-callout button{width:100%}}
+
   .balance-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
   .bcard{background:linear-gradient(135deg,var(--surface-2),var(--surface));border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;}
   .bcard .lbl{font-size:.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;}
   .bcard .amt{font-family:var(--mono);font-size:1.5rem;font-weight:700;margin-top:3px;}
   .bcard .amt input{background:var(--surface-3);border:1px solid var(--line);color:var(--text);font-family:var(--mono);font-size:1.3rem;font-weight:700;border-radius:7px;padding:3px 8px;width:100%;}
   .bcard.low .amt{color:var(--mint);}
-  .bcard.low.warn .amt{color:var(--red);}
+  .bcard.low.warn .amt{color:var(--amber);}
+  .bcard.low.warn.danger .amt{color:var(--red);}
   .bcard .sub{font-size:.72rem;color:var(--text-dim);margin-top:3px;}
   .bcard .sub.warn{color:var(--red);}
   .endcard{margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
@@ -245,7 +274,7 @@
   .modal-card p{color:var(--text-dim);font-size:.86rem;line-height:1.55;margin-bottom:14px;}
   .modal-field{display:block;margin:10px 0;}
   .modal-field span{display:block;color:var(--text-dim);font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
-  .modal-field input{width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px;font-size:.95rem;}
+  .modal-field input,.modal-field select{width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px;font-size:.95rem;}
   .modal-field input:focus{outline:1px solid var(--amber);}
   .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;}
   .modal-actions button{border:1px solid var(--line);border-radius:8px;padding:9px 13px;font-weight:700;cursor:pointer;background:var(--surface-2);color:var(--text);}
@@ -265,7 +294,8 @@
     <div class="brand"><h1>The Ledger</h1><span class="tag">plan it · watch it clear</span></div>
     <div class="month-nav"><button id="prevMonth">‹</button><span class="label" id="monthLabel"></span><button id="nextMonth">›</button></div>
   </header>
-  <div class="tabs"><button id="tabFlow" class="on">Cash flow</button><button id="tabBudget">Budget</button><button id="tabCompare">Import</button><button id="tabYear">Year</button><button id="tabTravel">Travel</button></div>
+  <div class="tabs"><button id="tabOverview" class="on">Overview</button><button id="tabFlow">Cash flow</button><button id="tabBudget">Budget</button><button id="tabCompare">Import</button><button id="tabYear">Year</button><button id="tabTravel">Travel</button></div>
+  <div id="overviewView"></div>
   <div id="flowView"></div>
   <div id="budgetView" style="display:none"></div>
   <div id="compareView" style="display:none"></div>

@@ -13,6 +13,8 @@ deployed to Netlify (same pattern as the devotional app).
    If you previously ran an older partial schema and see `column "household_id"
    does not exist`, rerun the full current `supabase/schema.sql`; it includes
    compatibility `ALTER TABLE` statements before recreating the policies.
+   Rerun the file on an existing Ledger project to install the shared checking,
+   brokerage, balance-history, transfer-planning, settings, and Realtime tables.
 
 ### 2. Create your two logins
 1. Authentication → Users → Add user → create one for you, one for Annie
@@ -62,10 +64,18 @@ npm run dev               # http://localhost:5173
 - **rules** — keyword → budget-line mappings, learned over time, tagged by source
   (`chase` vs `usbank`).
 - **trips** — travel log (name, dates, work/personal).
+- **accounts / balance_snapshots** — shared checking and brokerage balances plus
+  dated checkpoints used by both Overview and detailed Cash flow.
+- **household_settings** — minimum checking threshold, refill target, and the
+  selected 30-day/90-day/6-month/12-month forecast range.
+- **planned_transfers** — brokerage-to-checking transfers and their status. They
+  affect projected cash but are never counted as income.
 
 ## Notes
 - The anon key is safe to expose in the browser; row-level security restricts every
   query to your own household.
 - Saves are debounced (~0.6s) and flushed on tab close.
+- Account, settings, transfer, and monthly changes refresh across signed-in
+  household devices through Supabase Realtime.
 - The local single-file version (`budget.html`) still works offline with
   localStorage; this project is the synced multi-device version.

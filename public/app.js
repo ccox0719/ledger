@@ -1,12 +1,14 @@
 // app.js — The Ledger (Supabase-backed)
-import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds } from './data.js';
+import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds, ensureFinanceSetup, updateAccountBalance, updateCashSettings, savePlannedTransfer, subscribeHouseholdChanges } from './data.js';
 
 // ---- Global app state (was localStorage-backed, now Supabase) ----
-let state = { months:{}, rules:[], trips:[] };
-let cursor = monthKey(new Date(2026,5,1));
-let view = 'flow';
+let state = { months:{}, rules:[], trips:[], finance:null };
+let cursor = monthKey(new Date());
+let view = 'overview';
 let importingCSV = false;
 let importStatus = '';
+let stopRealtime = null;
+let realtimeReloadTimer = null;
 const NOT_TRAVEL_TAG='__NOT_TRAVEL__';
 
 // Save on tab close to flush any pending debounce
@@ -283,14 +285,73 @@ function eventDesc(l){
 function events(m){
   const evs=flat(m).filter(l=>lineAmt(l)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
     delta:(l.type==='in'?1:-1)*lineAmt(l),ref:l}));
-  (m.oneTime||[]).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:'out',
-    delta:-(o.amount||0),ref:o,oneTime:true}));
+  (m.oneTime||[]).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:o.type==='in'?'in':'out',
+    delta:(o.type==='in'?1:-1)*(o.amount||0),ref:o,oneTime:true}));
   evs.sort((a,b)=>a.day-b.day||(a.type==='in'?-1:1));
   return evs;
 }
 function endingBalance(m){let b=startBal(m);events(m).forEach(e=>b+=e.delta);return b;}
 function lowPoint(m){let b=startBal(m),low={bal:b,idx:-1};events(m).forEach((e,i)=>{b+=e.delta;if(b<low.bal)low={bal:b,idx:i};});return low;}
 function sums(m){let inc=0,exp=0,xfer=0;flat(m).forEach(l=>{const a=lineAmt(l);if(l.type==='in')inc+=a;else if(l.type==='xfer')xfer+=a;else exp+=a;});return{inc,exp,xfer};}
+function esc(value){return String(value??'').replace(/[&<>'"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));}
+function localISO(d=new Date()){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function parseISODate(value){const [y,m,d]=String(value).split('-').map(Number);return new Date(y,m-1,d||1);}
+function addDays(date,days){const d=new Date(date);d.setDate(d.getDate()+days);return d;}
+function displayDate(value,opts={month:'short',day:'numeric'}){return parseISODate(value).toLocaleDateString('en-US',opts);}
+function monthForForecast(key){
+  if(state.months[key]&&hasBudgetLines(state.months[key]))return state.months[key];
+  const priorKeys=Object.keys(state.months).filter(k=>k<key&&hasBudgetLines(state.months[k])).sort();
+  if(priorKeys.length)return cloneMonthTemplate(state.months[priorKeys[priorKeys.length-1]]);
+  return defaultMonth();
+}
+function eventsForKey(m,key){
+  const evs=flat(m).filter(l=>lineAmt(l,key)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
+    delta:(l.type==='in'?1:-1)*lineAmt(l,key),ref:l,key}));
+  (m.oneTime||[]).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:o.type==='in'?'in':'out',
+    delta:(o.type==='in'?1:-1)*(o.amount||0),ref:o,oneTime:true,key}));
+  evs.sort((a,b)=>a.day-b.day||(a.type==='in'?-1:1));
+  return evs;
+}
+function latestCheckingSnapshot(){
+  const id=state.finance?.accounts?.checking?.id;
+  return (state.finance?.snapshots||[]).filter(s=>s.accountId===id).sort((a,b)=>`${b.effectiveDate}${b.createdAt}`.localeCompare(`${a.effectiveDate}${a.createdAt}`))[0];
+}
+function buildSafetyForecast(monthsCount=state.finance?.settings?.forecastMonths||3){
+  const finance=state.finance||{};
+  const checking=finance.accounts?.checking?.balance??0;
+  const brokerage=finance.accounts?.brokerage?.balance??0;
+  const snapshot=latestCheckingSnapshot();
+  const today=parseISODate(localISO());
+  const anchorDate=snapshot?parseISODate(snapshot.effectiveDate):today;
+  const startDate=anchorDate;
+  const endDate=new Date(startDate); endDate.setMonth(endDate.getMonth()+Number(monthsCount));
+  const transfers=(finance.transfers||[]).filter(t=>['planned','initiated','completed'].includes(t.status));
+  const timeline=[]; let bal=Number(checking); let low={balance:bal,date:localISO(startDate),desc:'Current balance'};
+  let monthCursor=new Date(startDate.getFullYear(),startDate.getMonth(),1);
+  while(monthCursor<endDate){
+    const key=monthKey(monthCursor), m=monthForForecast(key);
+    const dated=eventsForKey(m,key).map(e=>{
+      const maxDay=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+1,0).getDate();
+      const date=new Date(monthCursor.getFullYear(),monthCursor.getMonth(),Math.min(maxDay,e.day));
+      return {...e,date,dateISO:localISO(date)};
+    });
+    transfers.filter(t=>monthKey(parseISODate(t.date))===key).forEach(t=>dated.push({
+      date:parseISODate(t.date),dateISO:t.date,desc:'From brokerage emergency fund',grp:'Planned transfer',type:'brokerage_in',delta:Number(t.amount),transfer:t,key,
+    }));
+    dated.sort((a,b)=>a.date-b.date||(a.delta>0?-1:1));
+    const monthRows=[]; let monthLow={balance:bal,date:localISO(monthCursor),desc:'Start of month'};
+    for(const e of dated){
+      if(e.date<=startDate||e.date>endDate)continue;
+      bal+=e.delta;
+      const row={...e,balance:bal}; timeline.push(row); monthRows.push(row);
+      if(bal<low.balance)low={balance:bal,date:e.dateISO,desc:e.desc};
+      if(bal<monthLow.balance)monthLow={balance:bal,date:e.dateISO,desc:e.desc};
+    }
+    monthCursor=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+1,1);
+  }
+  const activeTransferTotal=transfers.filter(t=>['planned','initiated'].includes(t.status)&&parseISODate(t.date)>startDate&&parseISODate(t.date)<=endDate).reduce((n,t)=>n+Number(t.amount),0);
+  return {startBalance:Number(checking),endBalance:bal,low,timeline,projectedBrokerage:Number(brokerage)-activeTransferTotal,startDate,endDate};
+}
 function lineTypeFor(m,lineName){
   return flat(m||{groups:[]}).find(l=>l.name===lineName)?.type;
 }
@@ -338,13 +399,21 @@ function openModal({title,message,fields=[],confirmText='OK',cancelText='Cancel'
       label.className='modal-field';
       const span=document.createElement('span');
       span.textContent=f.label;
-      const input=document.createElement('input');
-      input.type=f.type||'text';
+      const input=f.type==='select'?document.createElement('select'):document.createElement('input');
+      if(f.type==='select'){
+        (f.options||[]).forEach(option=>{
+          const o=document.createElement('option');
+          o.value=option.value; o.textContent=option.label;
+          input.appendChild(o);
+        });
+      }else input.type=f.type||'text';
       input.value=f.value??'';
-      input.placeholder=f.placeholder||'';
-      input.step=f.step||'';
-      input.min=f.min||'';
-      input.max=f.max||'';
+      if(input.tagName==='INPUT'){
+        input.placeholder=f.placeholder||'';
+        input.step=f.step||'';
+        input.min=f.min||'';
+        input.max=f.max||'';
+      }
       label.appendChild(span);
       label.appendChild(input);
       card.appendChild(label);
@@ -401,34 +470,207 @@ async function openWhatIf(m){
   save();renderFlow(m);
 }
 
+async function openBalanceUpdate(){
+  const f=state.finance, checking=f.accounts.checking, brokerage=f.accounts.brokerage;
+  const values=await openModal({
+    title:'Update account balances',
+    message:'Use the balances currently shown by the bank and brokerage. A dated checkpoint is kept so both views recalculate from the same numbers.',
+    confirmText:'Save balances',
+    fields:[
+      {name:'checking',label:'Checking balance',type:'number',value:checking.balance,step:'0.01'},
+      {name:'brokerage',label:'Brokerage emergency fund',type:'number',value:brokerage.balance,step:'0.01',min:'0'},
+      {name:'date',label:'Balance effective date',type:'date',value:localISO()},
+      {name:'note',label:'Optional note',placeholder:'Bank balance update'},
+    ],
+  });
+  if(!values)return;
+  const date=values.date||localISO(), note=values.note.trim();
+  const checkingValue=Number(values.checking), brokerageValue=Number(values.brokerage);
+  try{
+    if(Number.isFinite(checkingValue)&&checkingValue!==checking.balance){
+      const saved=await updateAccountBalance('checking',checkingValue,date,note);
+      f.accounts.checking=saved.account; f.snapshots.unshift(saved.snapshot);
+      const key=monthKey(parseISODate(date));
+      ensureMonth(key).todayBalance=checkingValue;
+      save();
+    }
+    if(Number.isFinite(brokerageValue)&&brokerageValue!==brokerage.balance){
+      const saved=await updateAccountBalance('brokerage',brokerageValue,date,note);
+      f.accounts.brokerage=saved.account; f.snapshots.unshift(saved.snapshot);
+    }
+    renderOverview();
+  }catch(err){await noticeModal('Balance update failed',err.message||String(err));}
+}
+
+async function openSafetySettings(){
+  const s=state.finance.settings;
+  const values=await openModal({
+    title:'Cash safety settings',
+    message:'The minimum triggers a warning. Transfer recommendations refill checking to the target cushion.',
+    confirmText:'Save settings',
+    fields:[
+      {name:'minimum',label:'Minimum checking balance',type:'number',value:s.minimumChecking,step:'100',min:'0'},
+      {name:'target',label:'Target after a transfer',type:'number',value:s.targetChecking,step:'100',min:'0'},
+    ],
+  });
+  if(!values)return;
+  const minimumChecking=Math.max(0,Number(values.minimum)||0);
+  const targetChecking=Math.max(minimumChecking,Number(values.target)||minimumChecking);
+  try{
+    state.finance.settings=await updateCashSettings({...s,minimumChecking,targetChecking});
+    renderOverview();
+  }catch(err){await noticeModal('Settings update failed',err.message||String(err));}
+}
+
+async function openQuickEvent(){
+  const values=await openModal({
+    title:'Add upcoming money',
+    message:'Add a one-time deposit or payment. It is shared and can also be edited from Cash flow.',
+    confirmText:'Add item',
+    fields:[
+      {name:'type',label:'Type',type:'select',value:'out',options:[{value:'out',label:'Money out'},{value:'in',label:'Money in'}]},
+      {name:'name',label:'Description',placeholder:'Insurance bill'},
+      {name:'amount',label:'Amount',type:'number',value:'0.00',step:'0.01',min:'0'},
+      {name:'date',label:'Date',type:'date',value:localISO(addDays(new Date(),1))},
+    ],
+  });
+  if(!values||!values.name.trim()||!(Number(values.amount)>0))return;
+  const date=parseISODate(values.date), key=monthKey(date), m=ensureMonth(key,true);
+  m.oneTime.push({id:crypto.randomUUID(),name:values.name.trim(),amount:Number(values.amount),day:date.getDate(),type:values.type});
+  save(); renderOverview();
+}
+
+async function openPlanTransfer(suggestedAmount,suggestedDate){
+  const f=state.finance, from=f.accounts.brokerage, to=f.accounts.checking;
+  const values=await openModal({
+    title:'Plan brokerage transfer',
+    message:'This moves emergency-fund money into checking. It improves the checking forecast but is never counted as household income.',
+    confirmText:'Plan transfer',
+    fields:[
+      {name:'amount',label:'Transfer amount',type:'number',value:suggestedAmount||500,step:'100',min:'1'},
+      {name:'date',label:'Expected in checking',type:'date',value:suggestedDate||localISO(addDays(new Date(),3))},
+      {name:'note',label:'Optional note',placeholder:'Protect the checking cushion'},
+    ],
+  });
+  if(!values||!(Number(values.amount)>0))return;
+  try{
+    const saved=await savePlannedTransfer({fromAccountId:from.id,toAccountId:to.id,amount:Number(values.amount),date:values.date,status:'planned',note:values.note.trim()});
+    f.transfers.push(saved); renderOverview();
+  }catch(err){await noticeModal('Transfer could not be saved',err.message||String(err));}
+}
+
+async function changeTransferStatus(id,status){
+  const transfer=state.finance.transfers.find(t=>t.id===id); if(!transfer)return;
+  try{
+    const saved=await savePlannedTransfer({...transfer,status});
+    Object.assign(transfer,saved); renderOverview();
+  }catch(err){await noticeModal('Transfer could not be updated',err.message||String(err));}
+}
+
+async function openEditTransfer(id){
+  const transfer=state.finance.transfers.find(t=>t.id===id); if(!transfer)return;
+  const values=await openModal({
+    title:'Edit brokerage transfer',
+    message:'Changes update the forecast for both household views.',
+    confirmText:'Save transfer',
+    fields:[
+      {name:'amount',label:'Transfer amount',type:'number',value:transfer.amount,step:'100',min:'1'},
+      {name:'date',label:'Expected in checking',type:'date',value:transfer.date},
+      {name:'note',label:'Note',value:transfer.note||''},
+    ],
+  });
+  if(!values||!(Number(values.amount)>0))return;
+  try{
+    const saved=await savePlannedTransfer({...transfer,amount:Number(values.amount),date:values.date,note:values.note.trim()});
+    Object.assign(transfer,saved); renderOverview();
+  }catch(err){await noticeModal('Transfer could not be updated',err.message||String(err));}
+}
+
+function renderOverview(){
+  const c=document.getElementById('overviewView'); if(!c)return;
+  const f=state.finance, s=f.settings, forecast=buildSafetyForecast(s.forecastMonths);
+  const below=forecast.low.balance<s.minimumChecking, overdraft=forecast.low.balance<0;
+  const status=overdraft?'danger':below?'caution':'safe';
+  const statusText=overdraft?'Overdraft projected':below?'Transfer may be needed':`Safe above ${moneyS(s.minimumChecking)}`;
+  const recommended=below?Math.max(0,Math.ceil((s.targetChecking-forecast.low.balance)/100)*100):0;
+  const suggestedDate=localISO(addDays(parseISODate(forecast.low.date),-3))<localISO()?localISO():localISO(addDays(parseISODate(forecast.low.date),-3));
+  const activeTransfers=f.transfers.filter(t=>t.status!=='cancelled').sort((a,b)=>a.date.localeCompare(b.date));
+  const upcoming=forecast.timeline.slice(0,12);
+  const monthly=new Map();
+  forecast.timeline.forEach(e=>{
+    const key=e.key;
+    if(!monthly.has(key))monthly.set(key,{low:e.balance,end:e.balance,lowDate:e.dateISO});
+    const m=monthly.get(key); m.end=e.balance;
+    if(e.balance<m.low){m.low=e.balance;m.lowDate=e.dateISO;}
+  });
+  c.innerHTML=`
+    <section class="safety-hero ${status}">
+      <div><div class="eyebrow">Household cash safety</div><h2>${statusText}</h2>
+        <p>${below?`Projected low ${money(forecast.low.balance)} on ${displayDate(forecast.low.date)} after ${esc(forecast.low.desc)}.`:`Lowest projected balance is ${money(forecast.low.balance)} on ${displayDate(forecast.low.date)}.`}</p></div>
+      <div class="safety-actions"><button id="updateBalances" class="primary-action">Update balances</button><button id="safetySettings">Settings</button></div>
+    </section>
+    <div class="range-switch" aria-label="Forecast range">${[1,3,6,12].map(n=>`<button data-range="${n}" class="${s.forecastMonths===n?'on':''}">${n===1?'30 days':n===3?'90 days':n+' months'}</button>`).join('')}</div>
+    <div class="safety-grid">
+      <article class="safety-card"><span>Checking now</span><strong>${money(f.accounts.checking.balance)}</strong><small>Shared balance checkpoint</small></article>
+      <article class="safety-card ${below?'attention':''}"><span>Lowest projected</span><strong>${money(forecast.low.balance)}</strong><small>${displayDate(forecast.low.date,{month:'short',day:'numeric',year:'numeric'})}</small></article>
+      <article class="safety-card"><span>Emergency fund</span><strong>${money(f.accounts.brokerage.balance)}</strong><small>${money(forecast.projectedBrokerage)} after planned transfers</small></article>
+      <article class="safety-card"><span>Projected ending</span><strong>${money(forecast.endBalance)}</strong><small>${s.forecastMonths===1?'30-day':s.forecastMonths===3?'90-day':s.forecastMonths+'-month'} view</small></article>
+    </div>
+    ${below?`<section class="transfer-callout"><div><b>Suggested brokerage transfer: ${moneyS(recommended)}</b><span>Expected in checking by ${displayDate(suggestedDate)} to restore the ${moneyS(s.targetChecking)} cushion.</span></div><button id="planSuggested">Plan transfer</button></section>`:''}
+    <div class="overview-actions"><button id="addUpcoming">+ Add upcoming money</button><button id="planTransfer">↔ Plan brokerage transfer</button></div>
+    <section class="overview-section"><div class="section-title"><h3>Months ahead</h3><span>${monthly.size} months in view</span></div>
+      <div class="month-strip">${[...monthly].map(([key,m])=>`<button data-open-month="${key}" class="month-peek ${m.low<s.minimumChecking?'low':''}"><span>${monAbbr(key)}</span><b>${moneyS(m.low)}</b><small>low · ends ${moneyS(m.end)}</small></button>`).join('')||'<p class="empty-state">Add future income and bills to build the forecast.</p>'}</div></section>
+    <section class="overview-section"><div class="section-title"><h3>Coming up</h3><span>Tap Cash flow for full detail</span></div>
+      <div class="upcoming-list">${upcoming.map(e=>`<div class="upcoming-row"><time>${displayDate(e.dateISO)}</time><span>${esc(e.desc)}<small>${esc(e.grp)}</small></span><b class="${e.delta>0?'positive':''}">${e.delta>0?'+':'−'}${moneyS(Math.abs(e.delta))}</b><em>${moneyS(e.balance)}</em></div>`).join('')||'<p class="empty-state">No scheduled activity in this range.</p>'}</div></section>
+    <section class="overview-section"><div class="section-title"><h3>Brokerage transfers</h3><span>Not counted as income</span></div>
+      <div class="transfer-list">${activeTransfers.map(t=>`<div class="transfer-row"><span data-edit-transfer="${t.id}" title="Edit transfer"><b>${money(t.amount)}</b><small>${displayDate(t.date)} · ${esc(t.note||'Emergency-fund transfer')}</small></span><select data-transfer-status="${t.id}"><option value="planned" ${t.status==='planned'?'selected':''}>Planned</option><option value="initiated" ${t.status==='initiated'?'selected':''}>Initiated</option><option value="completed" ${t.status==='completed'?'selected':''}>Completed</option><option value="cancelled">Cancel</option></select></div>`).join('')||'<p class="empty-state">No brokerage transfers planned.</p>'}</div></section>`;
+  c.querySelector('#updateBalances').onclick=openBalanceUpdate;
+  c.querySelector('#safetySettings').onclick=openSafetySettings;
+  c.querySelector('#addUpcoming').onclick=openQuickEvent;
+  c.querySelector('#planTransfer').onclick=()=>openPlanTransfer();
+  c.querySelector('#planSuggested')?.addEventListener('click',()=>openPlanTransfer(recommended,suggestedDate));
+  c.querySelectorAll('[data-range]').forEach(b=>b.onclick=async()=>{
+    s.forecastMonths=Number(b.dataset.range);
+    try{s.forecastMonths=(await updateCashSettings(s)).forecastMonths;renderOverview();}catch(err){noticeModal('Range could not be saved',err.message||String(err));}
+  });
+  c.querySelectorAll('[data-open-month]').forEach(b=>b.onclick=()=>{cursor=b.dataset.openMonth;view='flow';render();});
+  c.querySelectorAll('[data-edit-transfer]').forEach(el=>el.onclick=()=>openEditTransfer(el.dataset.editTransfer));
+  c.querySelectorAll('[data-transfer-status]').forEach(el=>el.onchange=()=>changeTransferStatus(el.dataset.transferStatus,el.value));
+}
+
 function render(){
   const m=getMonth();
   document.getElementById('monthLabel').textContent=monthName(cursor);
+  document.getElementById('tabOverview').className=view==='overview'?'on':'';
   document.getElementById('tabFlow').className=view==='flow'?'on':'';
   document.getElementById('tabBudget').className=view==='budget'?'on':'';
   document.getElementById('tabCompare').className=view==='compare'?'on':'';
   document.getElementById('tabYear').className=view==='year'?'on':'';
   document.getElementById('tabTravel').className=view==='travel'?'on':'';
+  document.getElementById('overviewView').style.display=view==='overview'?'':'none';
   document.getElementById('flowView').style.display=view==='flow'?'':'none';
   document.getElementById('budgetView').style.display=view==='budget'?'':'none';
   document.getElementById('compareView').style.display=view==='compare'?'':'none';
   document.getElementById('yearView').style.display=view==='year'?'':'none';
   document.getElementById('travelView').style.display=view==='travel'?'':'none';
-  if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else if(view==='year')renderYearReport(); else renderTravel(m);
+  document.querySelector('.month-nav').style.visibility=view==='overview'?'hidden':'visible';
+  document.getElementById('resetBtn').style.display=['budget','flow'].includes(view)?'':'none';
+  if(view==='overview')renderOverview(); else if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else if(view==='year')renderYearReport(); else renderTravel(m);
 }
 
 function renderFlow(m){
   const c=document.getElementById('flowView');
   const evs=events(m), low=lowPoint(m), ending=endingBalance(m), s=sums(m);
-  const warn=low.bal<0, hasStart=hasAnchor(m);
+  const hasStart=hasAnchor(m), threshold=state.finance?.settings?.minimumChecking??3000;
+  const warn=hasStart&&low.bal<threshold, danger=low.bal<0;
   const td=todayDayFor(cursor);
   const anchorLabel = td==null ? `Balance · end of ${monAbbr(cursor)}` : `Balance as of today · ${monAbbr(cursor)} ${td}`;
   let html=`<div class="balance-row">
     <div class="bcard"><div class="lbl">${anchorLabel}</div>
       <div class="amt"><input type="number" step="0.01" id="startBal" placeholder="enter balance" value="${hasStart?m.todayBalance:''}"></div></div>
-    <div class="bcard low ${warn?'warn':''}"><div class="lbl">Projected low point</div>
+    <div class="bcard low ${warn?'warn':''} ${danger?'danger':''}"><div class="lbl">Projected low point</div>
       <div class="amt">${money(low.bal)}</div>
-      <div class="sub ${warn?'warn':''}">${low.idx>=0?('after '+evs[low.idx].desc+' · '+monAbbr(cursor)+' '+evs[low.idx].day):'start of month'}${warn?' — goes negative!':''}</div></div>
+      <div class="sub ${warn?'warn':''}">${low.idx>=0?('after '+evs[low.idx].desc+' · '+monAbbr(cursor)+' '+evs[low.idx].day):'start of month'}${warn?(danger?' — goes negative!':` — below ${moneyS(threshold)} minimum`):''}</div></div>
   </div>`;
   html+=`<div class="bcard endcard">
     <div class="row">
@@ -519,7 +761,16 @@ function renderFlow(m){
     m.todayBalance=e.target.value===''?null:(parseFloat(e.target.value)||0);
     recalcBalances(m); // update numbers live, no re-render (keeps focus)
   });
-  sb.addEventListener('blur',()=>save());
+  sb.addEventListener('blur',async()=>{
+    save();
+    if(cursor===monthKey(new Date())&&m.todayBalance!=null&&state.finance?.accounts?.checking&&Number(m.todayBalance)!==Number(state.finance.accounts.checking.balance)){
+      try{
+        const saved=await updateAccountBalance('checking',Number(m.todayBalance),localISO(),'Updated from detailed cash flow');
+        state.finance.accounts.checking=saved.account;
+        state.finance.snapshots.unshift(saved.snapshot);
+      }catch(err){await noticeModal('Checking balance could not be shared',err.message||String(err));}
+    }
+  });
   sb.addEventListener('keydown',e=>{if(e.key==='Enter')sb.blur();});
 }
 
@@ -535,12 +786,13 @@ function recalcBalances(m){
   // top cards
   const lowCard=document.querySelector('.bcard.low');
   if(lowCard){
-    const warn=low.bal<0;
-    lowCard.className='bcard low'+(warn?' warn':'');
+    const threshold=state.finance?.settings?.minimumChecking??3000;
+    const warn=hasStart&&low.bal<threshold, danger=low.bal<0;
+    lowCard.className='bcard low'+(warn?' warn':'')+(danger?' danger':'');
     lowCard.querySelector('.amt').textContent=money(low.bal);
     const sub=lowCard.querySelector('.sub');
     sub.className='sub'+(warn?' warn':'');
-    sub.textContent=(low.idx>=0?('after '+evs[low.idx].desc+' · '+monAbbr(cursor)+' '+evs[low.idx].day):'start of month')+(warn?' — goes negative!':'');
+    sub.textContent=(low.idx>=0?('after '+evs[low.idx].desc+' · '+monAbbr(cursor)+' '+evs[low.idx].day):'start of month')+(warn?(danger?' — goes negative!':` — below ${moneyS(threshold)} minimum`):'');
   }
   const endAmt=document.querySelector('.endcard .amt');
   if(endAmt){ endAmt.textContent=money(ending); endAmt.style.color=ending<0?'var(--red)':'var(--mint)'; }
@@ -1609,6 +1861,7 @@ function renderTravel(m){
 
 // ---- Wire tab + nav handlers (after DOM ready) ----
 function wireChrome(){
+  document.getElementById('tabOverview').onclick=()=>{view='overview';render();};
   document.getElementById('tabFlow').onclick=()=>{view='flow';render();};
   document.getElementById('tabBudget').onclick=()=>{view='budget';render();};
   document.getElementById('tabCompare').onclick=()=>{view='compare';render();};
@@ -1645,6 +1898,8 @@ async function startApp(){
       return;
     }
     state = await loadState();
+    await ensureFinanceSetup(state);
+    syncSharedCheckingAnchor();
     const duplicateIds=normalizeImportedState();
     const changedBudgetTemplate=normalizeBudgetTemplate();
     const changedRetirementLines=normalizeRetirementFundLines();
@@ -1659,11 +1914,37 @@ async function startApp(){
     if(!state.rules || !state.rules.length) state.rules = defaultRules().map(r=>[r[0],r[1],'chase']);
     if(!state.trips) state.trips=[];
     wireChrome();
-    window._signout = async ()=>{ await flushSave(state); await signOut(); location.reload(); };
+    if(stopRealtime)stopRealtime();
+    stopRealtime=await subscribeHouseholdChanges(()=>{
+      clearTimeout(realtimeReloadTimer);
+      realtimeReloadTimer=setTimeout(reloadSharedState,700);
+    });
+    window._signout = async ()=>{ if(stopRealtime)stopRealtime(); await flushSave(state); await signOut(); location.reload(); };
     render();
   }catch(err){
     showFatal(err);
   }
+}
+
+function syncSharedCheckingAnchor(){
+  const checking=state.finance?.accounts?.checking;
+  if(!checking)return;
+  const key=monthKey(new Date());
+  const m=ensureMonth(key);
+  m.todayBalance=Number(checking.balance);
+}
+
+async function reloadSharedState(){
+  if(document.querySelector('.modal-backdrop')||['INPUT','SELECT'].includes(document.activeElement?.tagName)){
+    clearTimeout(realtimeReloadTimer);
+    realtimeReloadTimer=setTimeout(reloadSharedState,1000);
+    return;
+  }
+  try{
+    state=await loadState();
+    syncSharedCheckingAnchor();
+    render();
+  }catch(err){console.error('Realtime refresh failed',err);}
 }
 
 function showLogin(){
