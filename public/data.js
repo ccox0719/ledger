@@ -112,6 +112,7 @@ export async function loadState() {
     settings: settings[0] ? {
       minimumChecking: Number(settings[0].minimum_checking),
       targetChecking: Number(settings[0].target_checking),
+      emergencyFundAnnualAmount: Number(settings[0].emergency_fund_annual_amount || 0),
       forecastMonths: Number(settings[0].forecast_months),
     } : emptyFinance().settings,
     transfers: transfers.map(transferFromRow),
@@ -127,7 +128,7 @@ export async function loadState() {
 function emptyFinance() {
   return {
     accounts: {},
-    settings: { minimumChecking: 3000, targetChecking: 4000, forecastMonths: 3 },
+    settings: { minimumChecking: 3000, targetChecking: 4000, emergencyFundAnnualAmount: 0, forecastMonths: 3 },
     transfers: [], snapshots: [],
   };
 }
@@ -165,6 +166,7 @@ export async function ensureFinanceSetup(state) {
     household_id: householdId,
     minimum_checking: finance.settings?.minimumChecking ?? 3000,
     target_checking: finance.settings?.targetChecking ?? 4000,
+    emergency_fund_annual_amount: finance.settings?.emergencyFundAnnualAmount ?? 0,
     forecast_months: finance.settings?.forecastMonths ?? 3,
   };
   const { data: savedSettings } = assertOk(await requireSupabase().from('household_settings')
@@ -172,6 +174,7 @@ export async function ensureFinanceSetup(state) {
   finance.settings = {
     minimumChecking: Number(savedSettings.minimum_checking),
     targetChecking: Number(savedSettings.target_checking),
+    emergencyFundAnnualAmount: Number(savedSettings.emergency_fund_annual_amount || 0),
     forecastMonths: Number(savedSettings.forecast_months),
   };
   state.finance = finance;
@@ -204,12 +207,13 @@ export async function updateCashSettings(settings) {
     household_id: householdId,
     minimum_checking: settings.minimumChecking,
     target_checking: settings.targetChecking,
+    emergency_fund_annual_amount: settings.emergencyFundAnnualAmount || 0,
     forecast_months: settings.forecastMonths,
     updated_at: new Date().toISOString(),
   };
   const { data } = assertOk(await requireSupabase().from('household_settings')
     .upsert(row, { onConflict: 'household_id' }).select('*').single(), 'Update cash safety settings');
-  return { minimumChecking: Number(data.minimum_checking), targetChecking: Number(data.target_checking), forecastMonths: Number(data.forecast_months) };
+  return { minimumChecking: Number(data.minimum_checking), targetChecking: Number(data.target_checking), emergencyFundAnnualAmount: Number(data.emergency_fund_annual_amount || 0), forecastMonths: Number(data.forecast_months) };
 }
 
 export async function savePlannedTransfer(transfer) {

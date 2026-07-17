@@ -230,9 +230,12 @@ create table if not exists household_settings (
   household_id uuid primary key references households(id) on delete cascade,
   minimum_checking numeric not null default 3000,
   target_checking numeric not null default 4000,
+  emergency_fund_annual_amount numeric not null default 0,
   forecast_months int not null default 3 check (forecast_months in (1, 3, 6, 12)),
   updated_at timestamptz not null default now()
 );
+alter table household_settings
+  add column if not exists emergency_fund_annual_amount numeric not null default 0;
 
 create table if not exists planned_transfers (
   id uuid primary key default gen_random_uuid(),

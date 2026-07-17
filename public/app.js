@@ -357,6 +357,19 @@ function buildSafetyForecast(monthsCount=state.finance?.settings?.forecastMonths
   const activeTransferTotal=transfers.filter(t=>['planned','initiated'].includes(t.status)&&parseISODate(t.date)>startDate&&parseISODate(t.date)<=endDate).reduce((n,t)=>n+Number(t.amount),0);
   return {startBalance:Number(checking),endBalance:bal,low,timeline,projectedBrokerage:Number(brokerage)-activeTransferTotal,startDate,endDate};
 }
+function annualEmergencyFundStatus(year=new Date().getFullYear()){
+  const annual=Number(state.finance?.settings?.emergencyFundAnnualAmount||0);
+  const planned=(state.finance?.transfers||[])
+    .filter(t=>t.status!=='cancelled'&&String(t.date).startsWith(`${year}-`))
+    .reduce((sum,t)=>sum+Number(t.amount||0),0);
+  const entered=Object.entries(state.months||{})
+    .filter(([key])=>key.startsWith(`${year}-`))
+    .flatMap(([,m])=>m.oneTime||[])
+    .filter(item=>item.cashFlowKind==='transfer_in')
+    .reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const used=planned+entered;
+  return {annual,used,remaining:Math.max(0,annual-used),year};
+}
 function lineTypeFor(m,lineName){
   return flat(m||{groups:[]}).find(l=>l.name===lineName)?.type;
 }
@@ -504,18 +517,20 @@ async function openSafetySettings(){
   const s=state.finance.settings;
   const values=await openModal({
     title:'Cash safety settings',
-    message:'The minimum triggers a warning. Transfer recommendations refill checking to the target cushion.',
+    message:'The emergency-fund allowance resets to this amount every January 1. Transfers into checking reduce the remaining annual amount.',
     confirmText:'Save settings',
     fields:[
       {name:'minimum',label:'Minimum checking balance',type:'number',value:s.minimumChecking,step:'100',min:'0'},
       {name:'target',label:'Target after a transfer',type:'number',value:s.targetChecking,step:'100',min:'0'},
+      {name:'emergency',label:'Annual emergency fund allowance',type:'number',value:s.emergencyFundAnnualAmount||0,step:'100',min:'0'},
     ],
   });
   if(!values)return;
   const minimumChecking=Math.max(0,Number(values.minimum)||0);
   const targetChecking=Math.max(minimumChecking,Number(values.target)||minimumChecking);
+  const emergencyFundAnnualAmount=Math.max(0,Number(values.emergency)||0);
   try{
-    state.finance.settings=await updateCashSettings({...s,minimumChecking,targetChecking});
+    state.finance.settings=await updateCashSettings({...s,minimumChecking,targetChecking,emergencyFundAnnualAmount});
     renderOverview();
   }catch(err){await noticeModal('Settings update failed',err.message||String(err));}
 }
@@ -526,7 +541,7 @@ async function openQuickEvent(){
     message:'Add income, a credit-card payment, or a transfer.',
     confirmText:'Add item',
     fields:[
-      {name:'type',label:'Type',type:'select',value:'card',options:[{value:'card',label:'Credit card payment'},{value:'in',label:'Income'},{value:'transfer',label:'Transfer out'}]},
+      {name:'type',label:'Type',type:'select',value:'card',options:[{value:'card',label:'Credit card payment'},{value:'in',label:'Income'},{value:'transfer_in',label:'Transfer in (emergency fund)'},{value:'transfer',label:'Transfer out'}]},
       {name:'name',label:'Description',placeholder:'Optional for payments and transfers'},
       {name:'amount',label:'Amount',type:'number',value:'0.00',step:'0.01',min:'0'},
       {name:'date',label:'Date',type:'date',value:localISO(addDays(new Date(),1))},
@@ -534,8 +549,8 @@ async function openQuickEvent(){
   });
   if(!values||(!values.name.trim()&&values.type==='in')||!(Number(values.amount)>0))return;
   const date=parseISODate(values.date), key=monthKey(date), m=ensureMonth(key,true);
-  const fallbackName=values.type==='card'?'Credit Card Payment':values.type==='transfer'?'Transfer':'Income';
-  m.oneTime.push({id:crypto.randomUUID(),name:values.name.trim()||fallbackName,amount:Number(values.amount),day:date.getDate(),type:values.type==='in'?'in':'out',cashFlow:true,cashFlowKind:values.type});
+  const fallbackName=values.type==='card'?'Credit Card Payment':values.type==='transfer_in'?'Transfer In':values.type==='transfer'?'Transfer Out':'Income';
+  m.oneTime.push({id:crypto.randomUUID(),name:values.name.trim()||fallbackName,amount:Number(values.amount),day:date.getDate(),type:['in','transfer_in'].includes(values.type)?'in':'out',cashFlow:true,cashFlowKind:values.type});
   save(); renderOverview();
 }
 
@@ -585,6 +600,33 @@ async function openEditTransfer(id){
   }catch(err){await noticeModal('Transfer could not be updated',err.message||String(err));}
 }
 
+async function openEditCashFlowEvent(event){
+  if(event.transfer){await openEditTransfer(event.transfer.id);return;}
+  const m=ensureMonth(event.key,true);
+  const target=event.oneTime
+    ? (m.oneTime||[]).find(item=>item.id===event.ref?.id)
+    : flat(m).find(line=>line.id===event.ref?.id);
+  if(!target){await noticeModal('Item not found','This item could not be found in the selected month.');return;}
+  const currentAmount=event.oneTime?Number(target.amount||0):Number(target.budgeted||0);
+  const values=await openModal({
+    title:`Edit ${event.type==='in'?'money in':'money out'}`,
+    message:`Update this item for ${monthName(event.key)}. The projected balances will recalculate automatically.`,
+    confirmText:'Save item',
+    fields:[
+      {name:'name',label:'Description',value:target.name||event.desc},
+      {name:'amount',label:'Amount',type:'number',value:currentAmount,step:'0.01',min:'0'},
+      {name:'day',label:'Day of month',type:'number',value:target.day||event.day||1,min:'1',max:'31'},
+    ],
+  });
+  if(!values||!values.name.trim())return;
+  target.name=values.name.trim();
+  target.day=Math.min(31,Math.max(1,Number.parseInt(values.day)||1));
+  if(event.oneTime)target.amount=Math.max(0,Number(values.amount)||0);
+  else target.budgeted=Math.max(0,Number(values.amount)||0);
+  save();
+  renderOverview();
+}
+
 function renderOverview(){
   const c=document.getElementById('overviewView'); if(!c)return;
   const f=state.finance, s=f.settings, forecast=buildSafetyForecast(s.forecastMonths);
@@ -596,11 +638,12 @@ function renderOverview(){
   const upcoming=forecast.timeline.slice(0,60);
   const moneyIn=forecast.timeline.reduce((n,e)=>n+(e.delta>0?e.delta:0),0);
   const moneyOut=forecast.timeline.reduce((n,e)=>n+(e.delta<0?Math.abs(e.delta):0),0);
+  const emergency=annualEmergencyFundStatus();
   c.innerHTML=`
     <section class="safety-hero ${status}">
       <div><div class="eyebrow">Checking account forecast</div><h2>${statusText}</h2>
         <p>${below?`Projected low ${money(forecast.low.balance)} on ${displayDate(forecast.low.date)} after ${esc(forecast.low.desc)}.`:`Lowest projected balance is ${money(forecast.low.balance)} on ${displayDate(forecast.low.date)}.`}</p></div>
-      <div class="safety-actions"><button id="updateBalances" class="primary-action">Update bank balance</button></div>
+      <div class="safety-actions"><button id="updateBalances" class="primary-action">Update bank balance</button><button id="safetySettings">Settings</button></div>
     </section>
     <div class="range-switch" aria-label="Forecast range">${[1,3,6,12].map(n=>`<button data-range="${n}" class="${s.forecastMonths===n?'on':''}">${n===1?'30 days':n===3?'90 days':n+' months'}</button>`).join('')}</div>
     <div class="safety-grid simple">
@@ -608,20 +651,23 @@ function renderOverview(){
       <article class="safety-card"><span>Money in</span><strong class="positive">${money(moneyIn)}</strong></article>
       <article class="safety-card"><span>Money out</span><strong>${money(moneyOut)}</strong></article>
       <article class="safety-card ${below?'attention':''}"><span>Lowest balance</span><strong>${money(forecast.low.balance)}</strong><small>${displayDate(forecast.low.date,{month:'short',day:'numeric'})}</small></article>
+      <article class="safety-card"><span>Emergency fund left · ${emergency.year}</span><strong>${emergency.annual?money(emergency.remaining):'Not set'}</strong><small>${emergency.annual?`${money(emergency.used)} transferred this year`:'Set the annual amount in Settings'}</small></article>
     </div>
     ${below?`<section class="transfer-callout"><div><b>${moneyS(recommended)} transfer may be needed</b><span>Move it from the emergency fund by ${displayDate(suggestedDate)} to restore the ${moneyS(s.targetChecking)} cushion.</span></div><button id="planSuggested">Add transfer</button></section>`:''}
     <div class="overview-actions"><button id="addUpcoming">+ Add deposit or credit card payment</button></div>
     <p class="cash-note">Only income, credit-card payments, and transfers appear here. Detailed purchases remain available under Spending and Import statements.</p>
     <section class="overview-section"><div class="section-title"><h3>Upcoming money in and out</h3><span>Projected ending: ${money(forecast.endBalance)}</span></div>
-      <div class="cash-list-head"><span>Date</span><span>Item</span><span>In</span><span>Out</span><span>Balance</span></div>
-      <div class="upcoming-list">${upcoming.map(e=>`<div class="upcoming-row simple"><time>${displayDate(e.dateISO)}</time><span>${esc(e.desc)}</span><b class="positive">${e.delta>0?moneyS(e.delta):''}</b><b>${e.delta<0?moneyS(Math.abs(e.delta)):''}</b><em class="${e.balance<s.minimumChecking?'low-balance':''}">${moneyS(e.balance)}</em></div>`).join('')||'<p class="empty-state">No scheduled money in or out in this range.</p>'}</div></section>`;
+      <div class="cash-list-head"><span>Date</span><span>Item</span><span>In</span><span>Out</span><span class="cash-balance-col">Balance</span><span></span></div>
+      <div class="upcoming-list">${upcoming.map((e,i)=>`<div class="upcoming-row simple"><time>${displayDate(e.dateISO)}</time><span>${esc(e.desc)}</span><b class="positive">${e.delta>0?moneyS(e.delta):''}</b><b>${e.delta<0?moneyS(Math.abs(e.delta)):''}</b><em class="${e.balance<s.minimumChecking?'low-balance':''}">${moneyS(e.balance)}</em><button class="cash-edit" data-edit-cash="${i}" title="Edit ${esc(e.desc)}">Edit</button></div>`).join('')||'<p class="empty-state">No scheduled money in or out in this range.</p>'}</div></section>`;
   c.querySelector('#updateBalances').onclick=openBalanceUpdate;
+  c.querySelector('#safetySettings').onclick=openSafetySettings;
   c.querySelector('#addUpcoming').onclick=openQuickEvent;
   c.querySelector('#planSuggested')?.addEventListener('click',()=>openPlanTransfer(recommended,suggestedDate));
   c.querySelectorAll('[data-range]').forEach(b=>b.onclick=async()=>{
     s.forecastMonths=Number(b.dataset.range);
     try{s.forecastMonths=(await updateCashSettings(s)).forecastMonths;renderOverview();}catch(err){noticeModal('Range could not be saved',err.message||String(err));}
   });
+  c.querySelectorAll('[data-edit-cash]').forEach(button=>button.onclick=()=>openEditCashFlowEvent(upcoming[Number(button.dataset.editCash)]));
 }
 
 function render(){
@@ -1845,6 +1891,65 @@ function renderTravel(m){
 
 // (tab/nav handlers moved into wireChrome(), called after auth+load)
 
+// One-time bank movements carried over from "C and A In and Out.xlsx".
+// Stable IDs make this migration safe to run on every load without duplicates.
+const XLSX_ONE_TIME_ITEMS=[
+  ['2025-10-21','Braces payment',6600,'out','card'],
+  ['2025-11-01','Credit Card Payment',840,'out','card'],
+  ['2025-11-06','Credit Card Payment',288.63,'out','card'],
+  ['2025-11-11','Credit Card Payment',1060,'out','card'],
+  ['2025-11-27','Credit Card Payment',4426.70,'out','card'],
+  ['2025-12-02','Credit Card Payment',1068.83,'out','card'],
+  ['2025-12-15','One-time Money In',8988.49,'in','in'],
+  ['2025-12-15','One-time Payment',4550,'out','card'],
+  ['2025-12-27','Credit Card Payment',3160.16,'out','card'],
+  ['2026-01-19','Credit Card Payment',5175.61,'out','card'],
+  ['2026-01-28','Credit Card Payment',1924.68,'out','card'],
+  ['2026-02-07','One-time Money In',2566.13,'in','in'],
+  ['2026-02-19','Both Credit Cards',2715.04,'out','card'],
+  ['2026-02-21','One-time Money In',2464.93,'in','in'],
+  ['2026-02-27','Tax Refund',2611,'in','in'],
+  ['2026-02-27','One-time Payment',294.32,'out','card'],
+  ['2026-03-07','Taxes',2676,'out','card'],
+  ['2026-03-19','Tax Refund',3936,'in','in'],
+  ['2026-03-19','Credit Card Payment',4686.51,'out','card'],
+  ['2026-04-15','School Bill',600,'out','card'],
+  ['2026-04-19','Credit Card Payment',5996.88,'out','card'],
+  ['2026-04-22','Transfer In - Concrete',6000,'in','transfer_in'],
+  ['2026-05-01','Transfer In - Insurance',6000,'in','transfer_in'],
+  ['2026-05-01','One-time Payment',9069,'out','card'],
+  ['2026-05-06','Transfer In - Kayaks',8000,'in','transfer_in'],
+  ['2026-05-19','Credit Card Payment',4164.62,'out','card'],
+  ['2026-06-10','Transfer In',6000,'in','transfer_in'],
+  ['2026-06-19','Credit Card Payment',9795.63,'out','card'],
+  ['2026-06-24','Gift from B and J',18000,'in','in'],
+  ['2026-06-30','Bonus Estimate',2200,'in','in'],
+  ['2026-07-01','Life Insurance',1100,'out','card'],
+  ['2026-07-08','One-time Money In',86000,'in','transfer_in'],
+  ['2026-07-10','One-time Transfer Out',99500,'out','transfer'],
+  ['2026-07-19','Credit Card Payment',6869.88,'out','card'],
+  ['2026-08-07','Credit Card Payment',5100,'out','card'],
+  ['2026-08-19','Credit Card Payment',3000,'out','card'],
+  ['2026-09-19','Credit Card Payment',3000,'out','card'],
+  ['2026-10-19','Credit Card Payment',3000,'out','card'],
+  ['2026-11-19','Credit Card Payment',3000,'out','card'],
+  ['2026-12-15','Bonus Estimate',8900,'in','in'],
+  ['2026-12-19','Credit Card Payment',3000,'out','card'],
+];
+
+function seedSpreadsheetOneTimeItems(){
+  let changed=false;
+  XLSX_ONE_TIME_ITEMS.forEach(([date,name,amount,type,kind],index)=>{
+    const key=date.slice(0,7), day=Number(date.slice(8,10));
+    const m=ensureMonth(key);
+    const id=`xlsx-one-time-${date}-${index}`;
+    if((m.oneTime||[]).some(item=>item.id===id))return;
+    m.oneTime.push({id,name,amount,day,type,cashFlow:true,cashFlowKind:kind,source:'C and A In and Out.xlsx'});
+    changed=true;
+  });
+  return changed;
+}
+
 // ---- Wire tab + nav handlers (after DOM ready) ----
 function wireChrome(){
   document.getElementById('tabOverview').onclick=()=>{view='overview';render();};
@@ -1892,8 +1997,9 @@ async function startApp(){
     const changedPhoneLines=normalizePhoneLines();
     const changedRemovedBudgetLines=normalizeRemovedBudgetLines();
     const changedBudgetAmounts=normalizeBudgetAmounts();
+    const seededSpreadsheetItems=seedSpreadsheetOneTimeItems();
     if(duplicateIds.length){ await deleteTxnIds(duplicateIds); }
-    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines||changedRemovedBudgetLines||changedBudgetAmounts) save();
+    if(duplicateIds.length||changedBudgetTemplate||changedRetirementLines||changedPhoneLines||changedRemovedBudgetLines||changedBudgetAmounts||seededSpreadsheetItems) save();
     // seed defaults for the current month if missing or if a partial DB row exists
     // without the budget template.
     ensureMonth(cursor,true);

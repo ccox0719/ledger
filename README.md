@@ -66,8 +66,8 @@ npm run dev               # http://localhost:5173
 - **trips** — travel log (name, dates, work/personal).
 - **accounts / balance_snapshots** — shared checking and brokerage balances plus
   dated checkpoints used by both Overview and detailed Cash flow.
-- **household_settings** — minimum checking threshold, refill target, and the
-  selected 30-day/90-day/6-month/12-month forecast range.
+- **household_settings** — minimum checking threshold, refill target, annual
+  emergency-fund allowance, and the selected forecast range.
 - **planned_transfers** — brokerage-to-checking transfers and their status. They
   affect projected cash but are never counted as income.
 
