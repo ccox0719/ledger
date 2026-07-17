@@ -282,17 +282,15 @@ function eventDesc(l){
   if(simpleCadence(l.cadence)==='annual'&&l.type!=='in')return `${l.name} monthly set-aside`;
   return l.name;
 }
-const DIRECT_CHECKING_LINES=new Set(['First Mortgage','Tithe']);
 function isCheckingCashFlowLine(line){
-  // The simple forecast follows money that actually enters or leaves checking.
-  // Card-funded budget categories are represented by Credit Card Payment instead
-  // of being counted individually and then counted again when the card is paid.
-  return line.type==='in'||line.type==='xfer'||DIRECT_CHECKING_LINES.has(line.name);
+  // The forecast is intentionally limited to the account's big movements:
+  // income, credit-card payments, and transfers.
+  return line.type==='in'||line.type==='xfer';
 }
 function events(m){
   const evs=flat(m).filter(l=>lineAmt(l)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
     delta:(l.type==='in'?1:-1)*lineAmt(l),ref:l}));
-  (m.oneTime||[]).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:o.type==='in'?'in':'out',
+  (m.oneTime||[]).filter(o=>o.cashFlow===true).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:o.type==='in'?'in':'out',
     delta:(o.type==='in'?1:-1)*(o.amount||0),ref:o,oneTime:true}));
   evs.sort((a,b)=>a.day-b.day||(a.type==='in'?-1:1));
   return evs;
@@ -640,7 +638,7 @@ function render(){
   document.getElementById('compareView').style.display=view==='compare'?'':'none';
   document.getElementById('yearView').style.display=view==='year'?'':'none';
   document.getElementById('travelView').style.display=view==='travel'?'':'none';
-  document.querySelector('.month-nav').style.visibility=view==='overview'?'hidden':'visible';
+  document.querySelector('.month-nav').style.display=view==='overview'?'none':'flex';
   document.getElementById('resetBtn').style.display=['budget','flow'].includes(view)?'':'none';
   if(view==='overview')renderOverview(); else if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else if(view==='year')renderYearReport(); else renderTravel(m);
 }
