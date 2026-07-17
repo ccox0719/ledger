@@ -282,6 +282,13 @@ function eventDesc(l){
   if(simpleCadence(l.cadence)==='annual'&&l.type!=='in')return `${l.name} monthly set-aside`;
   return l.name;
 }
+const DIRECT_CHECKING_LINES=new Set(['First Mortgage','Tithe']);
+function isCheckingCashFlowLine(line){
+  // The simple forecast follows money that actually enters or leaves checking.
+  // Card-funded budget categories are represented by Credit Card Payment instead
+  // of being counted individually and then counted again when the card is paid.
+  return line.type==='in'||line.type==='xfer'||DIRECT_CHECKING_LINES.has(line.name);
+}
 function events(m){
   const evs=flat(m).filter(l=>lineAmt(l)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
     delta:(l.type==='in'?1:-1)*lineAmt(l),ref:l}));
@@ -305,7 +312,7 @@ function monthForForecast(key){
   return defaultMonth();
 }
 function eventsForKey(m,key){
-  const evs=flat(m).filter(l=>lineAmt(l,key)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
+  const evs=flat(m).filter(l=>isCheckingCashFlowLine(l)&&lineAmt(l,key)!==0).map(l=>({day:l.day||1,desc:eventDesc(l),grp:l.grp,type:l.type,
     delta:(l.type==='in'?1:-1)*lineAmt(l,key),ref:l,key}));
   (m.oneTime||[]).forEach(o=>evs.push({day:o.day||1,desc:o.name,grp:'One-time',type:o.type==='in'?'in':'out',
     delta:(o.type==='in'?1:-1)*(o.amount||0),ref:o,oneTime:true,key}));
@@ -517,19 +524,19 @@ async function openSafetySettings(){
 
 async function openQuickEvent(){
   const values=await openModal({
-    title:'Add upcoming money',
-    message:'Add a one-time deposit or payment. It is shared and can also be edited from Cash flow.',
+    title:'Add money in or out',
+    message:'Add a deposit, credit-card payment, or other checking-account payment.',
     confirmText:'Add item',
     fields:[
-      {name:'type',label:'Type',type:'select',value:'out',options:[{value:'out',label:'Money out'},{value:'in',label:'Money in'}]},
-      {name:'name',label:'Description',placeholder:'Insurance bill'},
+      {name:'type',label:'Type',type:'select',value:'card',options:[{value:'card',label:'Credit card payment'},{value:'in',label:'Money in'},{value:'out',label:'Other money out'}]},
+      {name:'name',label:'Description',placeholder:'Optional for a credit card payment'},
       {name:'amount',label:'Amount',type:'number',value:'0.00',step:'0.01',min:'0'},
       {name:'date',label:'Date',type:'date',value:localISO(addDays(new Date(),1))},
     ],
   });
-  if(!values||!values.name.trim()||!(Number(values.amount)>0))return;
+  if(!values||(!values.name.trim()&&values.type!=='card')||!(Number(values.amount)>0))return;
   const date=parseISODate(values.date), key=monthKey(date), m=ensureMonth(key,true);
-  m.oneTime.push({id:crypto.randomUUID(),name:values.name.trim(),amount:Number(values.amount),day:date.getDate(),type:values.type});
+  m.oneTime.push({id:crypto.randomUUID(),name:values.name.trim()||(values.type==='card'?'Credit Card Payment':'Payment'),amount:Number(values.amount),day:date.getDate(),type:values.type==='in'?'in':'out'});
   save(); renderOverview();
 }
 
@@ -604,7 +611,8 @@ function renderOverview(){
       <article class="safety-card ${below?'attention':''}"><span>Lowest balance</span><strong>${money(forecast.low.balance)}</strong><small>${displayDate(forecast.low.date,{month:'short',day:'numeric'})}</small></article>
     </div>
     ${below?`<section class="transfer-callout"><div><b>${moneyS(recommended)} transfer may be needed</b><span>Move it from the emergency fund by ${displayDate(suggestedDate)} to restore the ${moneyS(s.targetChecking)} cushion.</span></div><button id="planSuggested">Add transfer</button></section>`:''}
-    <div class="overview-actions"><button id="addUpcoming">+ Add money in or out</button></div>
+    <div class="overview-actions"><button id="addUpcoming">+ Add deposit or credit card payment</button></div>
+    <p class="cash-note">This list follows checking-account activity. Credit-card purchases are represented by the card payment, not by individual budget categories.</p>
     <section class="overview-section"><div class="section-title"><h3>Upcoming money in and out</h3><span>Projected ending: ${money(forecast.endBalance)}</span></div>
       <div class="cash-list-head"><span>Date</span><span>Item</span><span>In</span><span>Out</span><span>Balance</span></div>
       <div class="upcoming-list">${upcoming.map(e=>`<div class="upcoming-row simple"><time>${displayDate(e.dateISO)}</time><span>${esc(e.desc)}</span><b class="positive">${e.delta>0?moneyS(e.delta):''}</b><b>${e.delta<0?moneyS(Math.abs(e.delta)):''}</b><em class="${e.balance<s.minimumChecking?'low-balance':''}">${moneyS(e.balance)}</em></div>`).join('')||'<p class="empty-state">No scheduled money in or out in this range.</p>'}</div></section>`;
