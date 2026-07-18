@@ -235,7 +235,7 @@ export async function savePlannedTransfer(transfer) {
 export async function subscribeHouseholdChanges(onChange) {
   if (!householdId) return () => {};
   const channel = requireSupabase().channel(`household-cash-${householdId}`);
-  for (const table of ['accounts', 'balance_snapshots', 'household_settings', 'planned_transfers', 'months']) {
+  for (const table of ['accounts', 'balance_snapshots', 'household_settings', 'planned_transfers', 'months', 'trips']) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, onChange);
   }
   channel.subscribe();
@@ -245,6 +245,7 @@ export async function subscribeHouseholdChanges(onChange) {
 // ---- SAVE: debounced per-entity upserts ----
 // The app calls save() broadly; we diff-write the relevant tables.
 let saveTimer = null;
+const deletedTripIds = new Set();
 export function scheduleSave(state) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -271,13 +272,13 @@ export async function flushSave(state) {
   }));
   if (ruleRows.length) assertOk(await requireSupabase().from('rules').insert(ruleRows), 'Save rules');
 
-  // trips
-  assertOk(await requireSupabase().from('trips').delete().eq('household_id', hid), 'Clear trips');
-  const tripRows = (state.trips || []).map(t => ({
-    household_id: hid, name: t.name || '', start_date: t.start || null,
+  // Trips keep stable IDs. Deletions use deleteTrip(); ordinary saves only
+  // upsert current rows so a concurrent save cannot recreate a deleted trip.
+  const tripRows = (state.trips || []).filter(t => !deletedTripIds.has(t.id)).map(t => ({
+    id: t.id, household_id: hid, name: t.name || '', start_date: t.start || null,
     end_date: t.end || null, kind: t.kind || 'personal',
   }));
-  if (tripRows.length) assertOk(await requireSupabase().from('trips').insert(tripRows), 'Save trips');
+  if (tripRows.length) assertOk(await requireSupabase().from('trips').upsert(tripRows), 'Save trips');
   return { transactionsSaved: savedTxnKeys.size };
 }
 
@@ -441,4 +442,16 @@ export async function deleteTxnIds(ids) {
   if (!householdId || !ids?.length) return;
   assertOk(await requireSupabase().from('transactions').delete()
     .eq('household_id', householdId).in('id', ids), 'Delete duplicate transactions');
+}
+
+export async function deleteTrip(id) {
+  if (!householdId || !id) return;
+  deletedTripIds.add(id);
+  try {
+    assertOk(await requireSupabase().from('trips').delete()
+      .eq('household_id', householdId).eq('id', id).select('id').maybeSingle(), 'Delete trip');
+  } catch (error) {
+    deletedTripIds.delete(id);
+    throw error;
+  }
 }

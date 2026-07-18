@@ -1,5 +1,5 @@
 // app.js — The Ledger (Supabase-backed)
-import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds, ensureFinanceSetup, updateAccountBalance, updateCashSettings, savePlannedTransfer, subscribeHouseholdChanges } from './data.js';
+import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds, deleteTrip, ensureFinanceSetup, updateAccountBalance, updateCashSettings, savePlannedTransfer, subscribeHouseholdChanges } from './data.js';
 
 // ---- Global app state (was localStorage-backed, now Supabase) ----
 let state = { months:{}, rules:[], trips:[], finance:null };
@@ -1841,18 +1841,35 @@ function renderTravel(m){
     getTrips().push({id:crypto.randomUUID(),name,start,end:end||start,kind});
     save();renderTravel(m);
   };
-  c.querySelectorAll('[data-deltrip]').forEach(b=>b.addEventListener('click',()=>{
-    state.trips=getTrips().filter(t=>t.id!==b.dataset.deltrip);save();renderTravel(m);
-  }));
+  c.querySelectorAll('[data-deltrip]').forEach(b=>{
+    // Prevent an editable trip field from blurring and rerendering the card
+    // before the delete click is delivered.
+    b.addEventListener('pointerdown',event=>event.preventDefault());
+    b.addEventListener('click',async()=>{
+      const id=b.dataset.deltrip;
+      const removed=getTrips().find(t=>t.id===id);
+      if(!removed)return;
+      b.disabled=true;
+      state.trips=getTrips().filter(t=>t.id!==id);
+      renderTravel(m);
+      try{
+        await deleteTrip(id);
+      }catch(err){
+        state.trips.push(removed);
+        renderTravel(m);
+        await noticeModal('Trip could not be deleted',err.message||String(err));
+      }
+    });
+  });
   // Inline edits to existing trips
   c.querySelectorAll('[data-edit-name]').forEach(el=>el.addEventListener('blur',()=>{
-    const t=getTrips().find(x=>x.id===el.dataset.editName);if(t){t.name=el.value.trim();save();renderTravel(m);}
+    const t=getTrips().find(x=>x.id===el.dataset.editName);if(t){t.name=el.value.trim();save();}
   }));
   c.querySelectorAll('[data-edit-start]').forEach(el=>el.addEventListener('change',()=>{
-    const t=getTrips().find(x=>x.id===el.dataset.editStart);if(t){t.start=el.value;save();renderTravel(m);}
+    const t=getTrips().find(x=>x.id===el.dataset.editStart);if(t){t.start=el.value;save();}
   }));
   c.querySelectorAll('[data-edit-end]').forEach(el=>el.addEventListener('change',()=>{
-    const t=getTrips().find(x=>x.id===el.dataset.editEnd);if(t){t.end=el.value;save();renderTravel(m);}
+    const t=getTrips().find(x=>x.id===el.dataset.editEnd);if(t){t.end=el.value;save();}
   }));
   c.querySelectorAll('[data-edit-kind]').forEach(b=>b.addEventListener('click',()=>{
     const t=getTrips().find(x=>x.id===b.dataset.editKind);if(t){t.kind=b.dataset.k;save();renderTravel(m);}

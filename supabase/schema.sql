@@ -350,6 +350,11 @@ begin
   alter publication supabase_realtime add table months;
 exception when duplicate_object then null;
 end $$;
+do $$
+begin
+  alter publication supabase_realtime add table trips;
+exception when duplicate_object then null;
+end $$;
 
 -- ============================================================
 -- ONE-TIME SETUP (run after creating your two auth users)
