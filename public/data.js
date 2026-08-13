@@ -455,3 +455,19 @@ export async function deleteTrip(id) {
     throw error;
   }
 }
+
+export async function saveTrip(trip) {
+  if (!householdId || !trip?.id) throw new Error('Save trip: missing household or trip ID.');
+  deletedTripIds.delete(trip.id);
+  const row = {
+    id: trip.id,
+    household_id: householdId,
+    name: trip.name || '',
+    start_date: trip.start || null,
+    end_date: trip.end || trip.start || null,
+    kind: trip.kind || 'personal',
+  };
+  const { data } = assertOk(await requireSupabase().from('trips')
+    .upsert(row).select('*').single(), 'Save trip');
+  return { id: data.id, name: data.name, start: data.start_date, end: data.end_date, kind: data.kind };
+}
