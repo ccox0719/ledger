@@ -1094,6 +1094,7 @@ function renderCompare(m){
     return;
   }
   const {byLine,uncategorized,workTravel,income,skipped,transfers}=buildActuals(m);
+  const possibleSubscriptions=txns.filter(t=>t.possibleSubscription&&t.type!=='Payment'&&Number(t.amount)<0);
   // Build comparison for expense lines only. Transfers affect cash flow, not spending.
   const groups=m.groups.map(g=>{
     const lines=g.lines.filter(l=>l.type==='out').map(l=>{
@@ -1118,6 +1119,10 @@ function renderCompare(m){
   }
   if(transfers>0){
     html+=`<div class="travel-note">↔ ${money(transfers)} matched to savings/transfer lines — tracked in cash flow, not counted as spending.</div>`;
+  }
+  if(possibleSubscriptions.length){
+    const subscriptionTotal=possibleSubscriptions.reduce((sum,t)=>sum+Math.abs(Number(t.amount)||0),0);
+    html+=`<div class="subscription-note">↻ ${possibleSubscriptions.length} possible subscription${possibleSubscriptions.length===1?'':'s'} tagged · ${money(subscriptionTotal)} this month</div>`;
   }
 
   html+=`<div class="cmp-bar-head"><span>Category</span><span>Budget → Actual</span></div>`;
@@ -1231,6 +1236,7 @@ function mergeImported(existingRows,newRows){
         _id:prior._id,
         cat:prior.cat!==undefined?prior.cat:row.cat,
         workTravel:prior.workTravel!==undefined?prior.workTravel:row.workTravel,
+        possibleSubscription:prior.possibleSubscription!==undefined?prior.possibleSubscription:row.possibleSubscription,
       });
       updated++;
     } else {
@@ -1253,6 +1259,7 @@ function normalizeImportedState(){
           ...prior,
           cat:prior.cat!==undefined?prior.cat:row.cat,
           workTravel:prior.workTravel||row.workTravel,
+          possibleSubscription:prior.possibleSubscription||row.possibleSubscription,
           _id:prior._id||row._id,
         });
       } else byKey.set(key,row);
@@ -1605,13 +1612,15 @@ function buildReviewHTML(m){
       ? `<select class="rv-assign" data-idx="${i}"><option value="">${catDisplay}</option>${lineOpts.map(o=>`<option value="${o}" ${o===cat?'selected':''}>${o}</option>`).join('')}</select>`
       : `<span class="rv-fixed ${catClass}">${catDisplay}</span>`;
     const travelAction=travelCandidate?`<button class="rv-not-travel" data-not-travel-idx="${i}" title="Stop suggesting this transaction as travel">Not travel</button>`:'';
+    const canTagSubscription=t.type!=='Payment'&&Number(t.amount)<0&&!['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat);
+    const subscriptionAction=canTagSubscription?`<button class="rv-subscription ${t.possibleSubscription?'on':''}" data-subscription-idx="${i}" title="${t.possibleSubscription?'Remove possible subscription tag':'Tag as a possible subscription'}">${t.possibleSubscription?'↻ Possible sub':'Tag subscription'}</button>`:'';
     const src=(t.source==='usbank')?'<span class="src-tag usb">USB</span>':'<span class="src-tag chs">CHS</span>';
-    h+=`<div class="rev-row ${catClass}${tripClass}">
+    h+=`<div class="rev-row ${catClass}${tripClass}${t.possibleSubscription?' rv-subscription-row':''}">
       <span class="rv-src">${src}</span>
       <span class="rv-date">${shortDate(t.date)}</span>
       <span class="rv-desc" title="${t.desc.replace(/"/g,'&quot;')}${trip?` · ${trip.name||trip.kind}`:''}">${tripChip}${t.desc}</span>
       <span class="rv-amt ${t.amount>=0?'pos':''}">${money(t.amount)}</span>
-      <span class="rv-cat">${travelAction}${sel}</span>
+      <span class="rv-cat">${travelAction}${subscriptionAction}${sel}</span>
     </div>`;
   });
   return h;
@@ -1671,6 +1680,17 @@ function wireReview(m,panel){
       renderCompare(m);
       const p=document.getElementById('reviewPanel');
       if(p){ p.innerHTML=buildReviewHTML(m); p.style.display=''; wireReview(m,p); }
+    }
+  }));
+  panel.querySelectorAll('[data-subscription-idx]').forEach(btn=>btn.addEventListener('click',()=>{
+    const t=txns[+btn.dataset.subscriptionIdx]; if(!t)return;
+    const real=(m.imported||[]).find(x=>x.desc===t.desc&&x.date===t.date&&x.amount===t.amount&&(x.source||'')===(t.source||''));
+    if(real){
+      real.possibleSubscription=!real.possibleSubscription;
+      save();
+      renderCompare(m);
+      const p=document.getElementById('reviewPanel');
+      if(p){p.innerHTML=buildReviewHTML(m);p.style.display='';wireReview(m,p);}
     }
   }));
 }
