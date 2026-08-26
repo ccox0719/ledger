@@ -1,5 +1,5 @@
 // app.js — The Ledger (Supabase-backed)
-import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds, deleteTrip, ensureFinanceSetup, updateAccountBalance, updateCashSettings, subscribeHouseholdChanges } from './data.js';
+import { supabase, getSession, signIn, signOut, resolveHousehold, loadState, scheduleSave, flushSave, flushImportSave, deleteTxns, deleteTxnIds, deleteTrip, ensureFinanceSetup, updateAccountBalance, updateCashSettings, updateTransactionReviewStatuses, subscribeHouseholdChanges } from './data.js';
 
 // ---- Global app state (was localStorage-backed, now Supabase) ----
 let state = { months:{}, rules:[], trips:[], finance:null };
@@ -1140,8 +1140,7 @@ function renderSubscriptions(){
       t.subscriptionStatus=next;
       t.possibleSubscription=next==='possible_subscription';
     });
-    save();
-    try{await flushSave(state);renderSubscriptions();}
+    try{await updateTransactionReviewStatuses(matching.map(({t})=>t));renderSubscriptions();}
     catch(err){await noticeModal('Subscription status could not be saved',err.message||String(err));}
   });
   c.querySelectorAll('[data-restore-sub]').forEach(button=>button.onclick=async()=>{
@@ -1150,8 +1149,8 @@ function renderSubscriptions(){
     allImportedSubscriptionRows().filter(({t})=>subscriptionMerchantKey(t.desc)===subscription.key).forEach(({t})=>{
       t.subscriptionStatus='possible_subscription';t.possibleSubscription=true;
     });
-    save();
-    try{await flushSave(state);renderSubscriptions();}
+    const matching=allImportedSubscriptionRows().filter(({t})=>subscriptionMerchantKey(t.desc)===subscription.key).map(({t})=>t);
+    try{await updateTransactionReviewStatuses(matching);renderSubscriptions();}
     catch(err){await noticeModal('Subscription status could not be saved',err.message||String(err));}
   });
 }

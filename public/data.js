@@ -204,6 +204,22 @@ export async function updateCashSettings(settings) {
   return { minimumChecking: Number(data.minimum_checking), targetChecking: Number(data.target_checking), forecastMonths: Number(data.forecast_months) };
 }
 
+export async function updateTransactionReviewStatuses(transactions) {
+  const updates = [...new Map((transactions || [])
+    .filter(t => t?._id)
+    .map(t => [t._id, t.subscriptionStatus || (t.possibleSubscription ? 'possible_subscription' : 'reviewed')]))];
+  if (!updates.length) throw new Error('These transactions have not finished saving yet. Reload, then try again.');
+  for (let i = 0; i < updates.length; i += 25) {
+    const chunk = updates.slice(i, i + 25);
+    await Promise.all(chunk.map(async ([id, reviewStatus]) => {
+      const { data } = assertOk(await requireSupabase().from('transactions')
+        .update({ review_status: reviewStatus, updated_at: new Date().toISOString() })
+        .eq('id', id).eq('household_id', householdId).select('id'), 'Update subscription status');
+      if (!data?.length) throw new Error('Subscription status update was not accepted for one or more transactions.');
+    }));
+  }
+}
+
 export async function subscribeHouseholdChanges(onChange) {
   if (!householdId) return () => {};
   const channel = requireSupabase().channel(`household-cash-${householdId}`);
