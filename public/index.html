@@ -166,6 +166,20 @@
   .cmp-line .cl-assign{background:var(--surface-2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px;font-size:.72rem;max-width:130px;}
   .travel-note{background:rgba(127,169,201,.1);border:1px solid var(--blue);border-radius:10px;padding:10px 14px;font-size:.8rem;color:var(--blue);margin-bottom:14px;}
   .subscription-note{background:rgba(111,184,154,.1);border:1px solid var(--mint);border-radius:10px;padding:10px 14px;font-size:.8rem;color:var(--mint);margin-bottom:14px;}
+  .subscription-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px;}
+  .subscription-list{display:flex;flex-direction:column;gap:9px;}
+  .subscription-card{display:grid;grid-template-columns:minmax(160px,1fr) 110px 110px minmax(250px,auto);gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;}
+  .subscription-card.cancel{border-color:var(--red);box-shadow:inset 3px 0 0 var(--red);}
+  .subscription-card.keep{opacity:.7;}
+  .subscription-name{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .subscription-name small,.subscription-metric small{display:block;color:var(--text-dim);font-size:.66rem;font-weight:400;margin-top:3px;}
+  .subscription-metric{font-family:var(--mono);font-size:.82rem;text-align:right;}
+  .subscription-actions{display:flex;gap:5px;justify-content:flex-end;align-items:center;flex-wrap:wrap;}
+  .subscription-actions button,.subscription-actions a{border:1px solid var(--line);background:var(--surface-2);color:var(--text-dim);border-radius:7px;padding:5px 8px;font-size:.68rem;font-weight:700;text-decoration:none;cursor:pointer;}
+  .subscription-actions button.keep.on{border-color:var(--mint);color:var(--mint);}
+  .subscription-actions button.cancel.on{border-color:var(--red);color:var(--red);}
+  .subscription-actions a:hover{border-color:var(--amber);color:var(--amber);}
+  @media(max-width:760px){.subscription-card{grid-template-columns:minmax(130px,1fr) 90px}.subscription-actions{grid-column:1/-1;justify-content:flex-start}.subscription-summary{grid-template-columns:1fr}.subscription-card>.subscription-metric:nth-child(3){display:none}}
   .trip-banner{background:rgba(224,164,88,.08);border:1px solid rgba(224,164,88,.4);border-radius:var(--radius);padding:14px;margin-bottom:18px;}
   .trip-banner .tb-head{font-size:.8rem;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
   .trip-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap;}
@@ -302,11 +316,12 @@
     <div class="brand"><h1>The Ledger</h1><span class="tag">money in · money out · what remains</span></div>
     <div class="month-nav"><button id="prevMonth">‹</button><span class="label" id="monthLabel"></span><button id="nextMonth">›</button></div>
   </header>
-  <div class="tabs"><button id="tabOverview" class="on">Forecast</button><button id="tabFlow" style="display:none">Cash flow</button><button id="tabBudget">Spending</button><button id="tabCompare">Import statements</button><button id="tabYear">Year</button><button id="tabTravel">Travel</button></div>
+  <div class="tabs"><button id="tabOverview" class="on">Forecast</button><button id="tabFlow" style="display:none">Cash flow</button><button id="tabBudget">Spending</button><button id="tabCompare">Import statements</button><button id="tabSubscriptions">Subscriptions</button><button id="tabYear">Year</button><button id="tabTravel">Travel</button></div>
   <div id="overviewView"></div>
   <div id="flowView" style="display:none"></div>
   <div id="budgetView" style="display:none"></div>
   <div id="compareView" style="display:none"></div>
+  <div id="subscriptionsView" style="display:none"></div>
   <div id="yearView" style="display:none"></div>
   <div id="travelView" style="display:none"></div>
   <button class="reset" id="resetBtn">Reset this month to defaults</button>

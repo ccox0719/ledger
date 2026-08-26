@@ -99,6 +99,7 @@ export async function loadState() {
       cat: !t.category || t.category === 'other' ? undefined : t.category,
       workTravel: t.work_travel,
       possibleSubscription: t.review_status === 'possible_subscription',
+      subscriptionStatus: ['possible_subscription','subscription_keep','subscription_cancel'].includes(t.review_status) ? t.review_status : '',
     });
   });
 
@@ -297,7 +298,7 @@ async function transactionRowsForState(state, monthKeys) {
         account_name: appSource, txn_date: txnDate, date: txnDate,
         description: t.desc, amount: Math.abs(Number(t.amount || 0)),
         type: transactionType(t), txn_type: t.type, category, work_travel: !!t.workTravel,
-        review_status: t.possibleSubscription ? 'possible_subscription' : 'reviewed',
+        review_status: t.subscriptionStatus || (t.possibleSubscription ? 'possible_subscription' : 'reviewed'),
         import_key: importKey,
       });
       txRefs.set(importKey, t);

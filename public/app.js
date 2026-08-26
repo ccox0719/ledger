@@ -627,17 +627,19 @@ function render(){
   document.getElementById('tabFlow').className=view==='flow'?'on':'';
   document.getElementById('tabBudget').className=view==='budget'?'on':'';
   document.getElementById('tabCompare').className=view==='compare'?'on':'';
+  document.getElementById('tabSubscriptions').className=view==='subscriptions'?'on':'';
   document.getElementById('tabYear').className=view==='year'?'on':'';
   document.getElementById('tabTravel').className=view==='travel'?'on':'';
   document.getElementById('overviewView').style.display=view==='overview'?'':'none';
   document.getElementById('flowView').style.display=view==='flow'?'':'none';
   document.getElementById('budgetView').style.display=view==='budget'?'':'none';
   document.getElementById('compareView').style.display=view==='compare'?'':'none';
+  document.getElementById('subscriptionsView').style.display=view==='subscriptions'?'':'none';
   document.getElementById('yearView').style.display=view==='year'?'':'none';
   document.getElementById('travelView').style.display=view==='travel'?'':'none';
-  document.querySelector('.month-nav').style.display=view==='overview'?'none':'flex';
+  document.querySelector('.month-nav').style.display=['overview','subscriptions'].includes(view)?'none':'flex';
   document.getElementById('resetBtn').style.display=['budget','flow'].includes(view)?'':'none';
-  if(view==='overview')renderOverview(); else if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else if(view==='year')renderYearReport(); else renderTravel(m);
+  if(view==='overview')renderOverview(); else if(view==='flow')renderFlow(m); else if(view==='budget')renderBudget(m); else if(view==='compare')renderCompare(m); else if(view==='subscriptions')renderSubscriptions(); else if(view==='year')renderYearReport(); else renderTravel(m);
 }
 
 function renderFlow(m){
@@ -1013,6 +1015,101 @@ function buildYearActuals(year=yearKey()){
   });
   return {byLine,uncategorized,byMonth,bySource,workTravel,income,skipped,transfers,spending,count:collectYearTxns(year).length};
 }
+
+const SUBSCRIPTION_HINTS=/NETFLIX|HULU|SPOTIFY|APPLE\.COM\/BILL|AMAZON PRIME|AUDIBLE|KINDLE|CHATGPT|OPENAI|HBO|MAX\.COM|DISNEY|PEACOCK|PARAMOUNT|YOUTUBE|ICLOUD|DROPBOX|MICROSOFT 365|ADOBE|CANVA|NYTIMES|WALL STREET JOURNAL|WSJ|STRAVA|PLANET FITNESS|GYM|MEMBERSHIP|SUBSCRIPTION/i;
+function subscriptionMerchantKey(desc){
+  return String(desc||'')
+    .toUpperCase()
+    .replace(/^(DEBIT CARD PURCHASE|ELECTRONIC WITHDRAWAL|RECURRING PAYMENT|PURCHASE)\s+/,'')
+    .replace(/\b(REF|REFERENCE|AUTH|TRACE|ORDER|TRANSACTION)\s*[A-Z0-9-]+\b/g,' ')
+    .replace(/\b\d{4,}\b/g,' ')
+    .replace(/[^A-Z0-9]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function subscriptionMerchantName(key){
+  return key.toLowerCase().replace(/\b\w/g,ch=>ch.toUpperCase())||'Unknown merchant';
+}
+function subscriptionCandidates(){
+  const groups=new Map();
+  Object.entries(state.months||{}).forEach(([month,m])=>(m.imported||[]).forEach(t=>{
+    if(t.type==='Payment'||Number(t.amount)>=0||t.workTravel)return;
+    const cat=reviewCategory(t);
+    if(['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat))return;
+    const key=subscriptionMerchantKey(t.desc);
+    if(!key)return;
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push({t,month});
+  }));
+  const candidates=[];
+  for(const [key,rows] of groups){
+    const months=[...new Set(rows.map(r=>r.month))].sort();
+    const amounts=rows.map(r=>Math.abs(Number(r.t.amount)||0)).sort((a,b)=>a-b);
+    const median=amounts[Math.floor(amounts.length/2)]||0;
+    const consistent=amounts.length>1&&(amounts[amounts.length-1]-amounts[0])<=Math.max(2,median*.12);
+    const explicit=rows.some(r=>r.t.subscriptionStatus||r.t.possibleSubscription);
+    const hinted=rows.some(r=>SUBSCRIPTION_HINTS.test(r.t.desc||''));
+    const recurring=months.length>=2&&rows.length/months.length<=2&&consistent;
+    if(!explicit&&!hinted&&!recurring)continue;
+    const statusRows=rows.filter(r=>r.t.subscriptionStatus);
+    const status=statusRows.length?statusRows[statusRows.length-1].t.subscriptionStatus:(explicit?'possible_subscription':'');
+    const total=amounts.reduce((sum,n)=>sum+n,0);
+    candidates.push({
+      key,rows,months,status,
+      name:subscriptionMerchantName(key),
+      monthly:total/Math.max(1,months.length),
+      lastAmount:amounts[amounts.length-1]||0,
+      lastMonth:months[months.length-1]||'',
+      detected:!explicit,
+    });
+  }
+  const rank={subscription_cancel:0,'':1,possible_subscription:1,subscription_keep:2};
+  return candidates.sort((a,b)=>(rank[a.status]??1)-(rank[b.status]??1)||b.monthly-a.monthly||a.name.localeCompare(b.name));
+}
+function renderSubscriptions(){
+  const c=document.getElementById('subscriptionsView');
+  const subscriptions=subscriptionCandidates();
+  if(!subscriptions.length){
+    c.innerHTML=`<div class="empty-state" style="text-align:center;padding:30px">No recurring subscription-like charges were found yet. Import at least two months of statements, or tag a charge from the transaction review.</div>`;
+    return;
+  }
+  const monthly=subscriptions.reduce((sum,s)=>sum+s.monthly,0);
+  const cancelCount=subscriptions.filter(s=>s.status==='subscription_cancel').length;
+  let html=`<div class="subscription-summary">
+    <article class="safety-card"><span>Possible subscriptions</span><strong>${subscriptions.length}</strong></article>
+    <article class="safety-card"><span>Estimated monthly cost</span><strong>${money(monthly)}</strong></article>
+    <article class="safety-card ${cancelCount?'attention':''}"><span>Marked to cancel</span><strong>${cancelCount}</strong></article>
+  </div>
+  <p class="src-note" style="margin-bottom:12px">Recurring charges are detected from similar merchant names and amounts across imported statements. “Cancel” marks your checklist; use “Find cancellation” to open the provider search.</p>
+  <div class="subscription-list">`;
+  subscriptions.forEach((s,i)=>{
+    const cls=s.status==='subscription_cancel'?'cancel':s.status==='subscription_keep'?'keep':'';
+    const encoded=encodeURIComponent(`${s.name} cancel subscription`);
+    html+=`<article class="subscription-card ${cls}">
+      <div class="subscription-name" title="${esc(s.name)}">${esc(s.name)}<small>${s.detected?'Detected recurring charge':'Manually tagged'} · ${s.rows.length} charge${s.rows.length===1?'':'s'}</small></div>
+      <div class="subscription-metric">${money(s.monthly)}<small>est. monthly</small></div>
+      <div class="subscription-metric">${money(s.lastAmount)}<small>latest · ${esc(s.lastMonth)}</small></div>
+      <div class="subscription-actions">
+        <button class="keep ${s.status==='subscription_keep'?'on':''}" data-sub-status="subscription_keep" data-sub-idx="${i}">Keep</button>
+        <button class="cancel ${s.status==='subscription_cancel'?'on':''}" data-sub-status="subscription_cancel" data-sub-idx="${i}">Cancel</button>
+        <a href="https://www.google.com/search?q=${encoded}" target="_blank" rel="noopener noreferrer">Find cancellation</a>
+      </div>
+    </article>`;
+  });
+  c.innerHTML=html+'</div>';
+  c.querySelectorAll('[data-sub-status]').forEach(button=>button.onclick=()=>{
+    const subscription=subscriptions[Number(button.dataset.subIdx)];
+    if(!subscription)return;
+    const next=subscription.status===button.dataset.subStatus?'possible_subscription':button.dataset.subStatus;
+    subscription.rows.forEach(({t})=>{
+      t.subscriptionStatus=next;
+      t.possibleSubscription=next==='possible_subscription';
+    });
+    save();
+    renderSubscriptions();
+  });
+}
+
 function renderYearReport(){
   const c=document.getElementById('yearView');
   const year=yearKey();
@@ -1237,6 +1334,7 @@ function mergeImported(existingRows,newRows){
         cat:prior.cat!==undefined?prior.cat:row.cat,
         workTravel:prior.workTravel!==undefined?prior.workTravel:row.workTravel,
         possibleSubscription:prior.possibleSubscription!==undefined?prior.possibleSubscription:row.possibleSubscription,
+        subscriptionStatus:prior.subscriptionStatus||row.subscriptionStatus,
       });
       updated++;
     } else {
@@ -1260,6 +1358,7 @@ function normalizeImportedState(){
           cat:prior.cat!==undefined?prior.cat:row.cat,
           workTravel:prior.workTravel||row.workTravel,
           possibleSubscription:prior.possibleSubscription||row.possibleSubscription,
+          subscriptionStatus:prior.subscriptionStatus||row.subscriptionStatus,
           _id:prior._id||row._id,
         });
       } else byKey.set(key,row);
@@ -1687,6 +1786,7 @@ function wireReview(m,panel){
     const real=(m.imported||[]).find(x=>x.desc===t.desc&&x.date===t.date&&x.amount===t.amount&&(x.source||'')===(t.source||''));
     if(real){
       real.possibleSubscription=!real.possibleSubscription;
+      real.subscriptionStatus=real.possibleSubscription?'possible_subscription':'';
       save();
       renderCompare(m);
       const p=document.getElementById('reviewPanel');
@@ -1950,6 +2050,7 @@ function wireChrome(){
   document.getElementById('tabFlow').onclick=()=>{view='flow';render();};
   document.getElementById('tabBudget').onclick=()=>{view='budget';render();};
   document.getElementById('tabCompare').onclick=()=>{view='compare';render();};
+  document.getElementById('tabSubscriptions').onclick=()=>{view='subscriptions';render();};
   document.getElementById('tabYear').onclick=()=>{view='year';render();};
   document.getElementById('tabTravel').onclick=()=>{view='travel';render();};
   document.getElementById('prevMonth').onclick=()=>shift(-1);
