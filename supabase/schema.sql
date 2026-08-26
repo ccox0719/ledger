@@ -203,11 +203,11 @@ alter table trips
   add column if not exists created_at timestamptz not null default now();
 
 -- 6) SHARED CASH SAFETY --------------------------------------
--- Checking is the operating account; brokerage is the emergency reservoir.
+-- Checking is the operating account used by the cash forecast.
 create table if not exists accounts (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references households(id) on delete cascade,
-  kind text not null check (kind in ('checking', 'brokerage')),
+  kind text not null check (kind = 'checking'),
   name text not null,
   current_balance numeric not null default 0,
   updated_at timestamptz not null default now(),
@@ -230,31 +230,12 @@ create table if not exists household_settings (
   household_id uuid primary key references households(id) on delete cascade,
   minimum_checking numeric not null default 3000,
   target_checking numeric not null default 4000,
-  emergency_fund_annual_amount numeric not null default 0,
   forecast_months int not null default 3 check (forecast_months in (1, 3, 6, 12)),
   updated_at timestamptz not null default now()
-);
-alter table household_settings
-  add column if not exists emergency_fund_annual_amount numeric not null default 0;
-
-create table if not exists planned_transfers (
-  id uuid primary key default gen_random_uuid(),
-  household_id uuid not null references households(id) on delete cascade,
-  from_account_id uuid not null references accounts(id) on delete cascade,
-  to_account_id uuid not null references accounts(id) on delete cascade,
-  amount numeric not null check (amount > 0),
-  transfer_date date not null,
-  status text not null default 'planned' check (status in ('planned', 'initiated', 'completed', 'cancelled', 'accepted_dip')),
-  note text not null default '',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  created_by uuid references auth.users(id)
 );
 
 create index if not exists balance_snapshots_household_date
   on balance_snapshots (household_id, effective_date desc, created_at desc);
-create index if not exists planned_transfers_household_date
-  on planned_transfers (household_id, transfer_date);
 
 -- ============================================================
 -- ROW LEVEL SECURITY
@@ -269,7 +250,6 @@ alter table trips             enable row level security;
 alter table accounts          enable row level security;
 alter table balance_snapshots enable row level security;
 alter table household_settings enable row level security;
-alter table planned_transfers enable row level security;
 
 drop policy if exists "members read household" on households;
 drop policy if exists "read own membership" on household_members;
@@ -280,7 +260,6 @@ drop policy if exists "trips rw" on trips;
 drop policy if exists "accounts rw" on accounts;
 drop policy if exists "balance snapshots rw" on balance_snapshots;
 drop policy if exists "household settings rw" on household_settings;
-drop policy if exists "planned transfers rw" on planned_transfers;
 
 -- households: members can see their own household
 create policy "members read household" on households
@@ -320,10 +299,6 @@ create policy "household settings rw" on household_settings
   for all using (household_id = current_household())
   with check (household_id = current_household());
 
-create policy "planned transfers rw" on planned_transfers
-  for all using (household_id = current_household())
-  with check (household_id = current_household());
-
 -- Realtime keeps both signed-in views synchronized after either person edits.
 do $$
 begin
@@ -338,11 +313,6 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table household_settings;
-exception when duplicate_object then null;
-end $$;
-do $$
-begin
-  alter publication supabase_realtime add table planned_transfers;
 exception when duplicate_object then null;
 end $$;
 do $$

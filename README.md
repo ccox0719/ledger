@@ -14,7 +14,7 @@ deployed to Netlify (same pattern as the devotional app).
    does not exist`, rerun the full current `supabase/schema.sql`; it includes
    compatibility `ALTER TABLE` statements before recreating the policies.
    Rerun the file on an existing Ledger project to install the shared checking,
-   brokerage, balance-history, transfer-planning, settings, and Realtime tables.
+   balance-history, settings, and Realtime tables.
 
 ### 2. Create your two logins
 1. Authentication → Users → Add user → create one for you, one for Annie
@@ -64,12 +64,10 @@ npm run dev               # http://localhost:5173
 - **rules** — keyword → budget-line mappings, learned over time, tagged by source
   (`chase` vs `usbank`).
 - **trips** — travel log (name, dates, work/personal).
-- **accounts / balance_snapshots** — shared checking and brokerage balances plus
-  dated checkpoints used by both Overview and detailed Cash flow.
-- **household_settings** — minimum checking threshold, refill target, annual
-  emergency-fund allowance, and the selected forecast range.
-- **planned_transfers** — brokerage-to-checking transfers and their status. They
-  affect projected cash but are never counted as income.
+- **accounts / balance_snapshots** — shared checking balance plus dated
+  checkpoints used by both Overview and detailed Cash flow.
+- **household_settings** — minimum checking threshold, target balance, and the
+  selected forecast range.
 
 ## Notes
 - The anon key is safe to expose in the browser; row-level security restricts every

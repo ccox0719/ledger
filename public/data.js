@@ -66,14 +66,13 @@ export async function loadState() {
   if (!householdId) await resolveHousehold();
   if (!householdId) return state; // not set up yet
 
-  const [months, rules, trips, txns, accounts, settings, transfers, snapshots] = await Promise.all([
+  const [months, rules, trips, txns, accounts, settings, snapshots] = await Promise.all([
     fetchAll(() => requireSupabase().from('months').select('*'), 'Load months'),
     fetchAll(() => requireSupabase().from('rules').select('*').order('priority', { ascending: false }), 'Load rules'),
     fetchAll(() => requireSupabase().from('trips').select('*'), 'Load trips'),
     fetchAll(() => requireSupabase().from('transactions').select('*').order('txn_date', { ascending: true }), 'Load transactions'),
-    fetchAll(() => requireSupabase().from('accounts').select('*'), 'Load shared accounts'),
+    fetchAll(() => requireSupabase().from('accounts').select('*').eq('kind', 'checking'), 'Load checking account'),
     fetchAll(() => requireSupabase().from('household_settings').select('*'), 'Load cash safety settings'),
-    fetchAll(() => requireSupabase().from('planned_transfers').select('*').order('transfer_date', { ascending: true }), 'Load planned transfers'),
     fetchAll(() => requireSupabase().from('balance_snapshots').select('*').order('effective_date', { ascending: false }).order('created_at', { ascending: false }), 'Load balance history'),
   ]);
 
@@ -112,10 +111,8 @@ export async function loadState() {
     settings: settings[0] ? {
       minimumChecking: Number(settings[0].minimum_checking),
       targetChecking: Number(settings[0].target_checking),
-      emergencyFundAnnualAmount: Number(settings[0].emergency_fund_annual_amount || 0),
       forecastMonths: Number(settings[0].forecast_months),
     } : emptyFinance().settings,
-    transfers: transfers.map(transferFromRow),
     snapshots: snapshots.map(s => ({
       id: s.id, accountId: s.account_id, balance: Number(s.balance),
       effectiveDate: s.effective_date, note: s.note || '', createdAt: s.created_at,
@@ -128,8 +125,8 @@ export async function loadState() {
 function emptyFinance() {
   return {
     accounts: {},
-    settings: { minimumChecking: 3000, targetChecking: 4000, emergencyFundAnnualAmount: 0, forecastMonths: 3 },
-    transfers: [], snapshots: [],
+    settings: { minimumChecking: 3000, targetChecking: 4000, forecastMonths: 3 },
+    snapshots: [],
   };
 }
 
@@ -140,23 +137,15 @@ function accountFromRow(a) {
   };
 }
 
-function transferFromRow(t) {
-  return {
-    id: t.id, fromAccountId: t.from_account_id, toAccountId: t.to_account_id,
-    amount: Number(t.amount), date: t.transfer_date, status: t.status,
-    note: t.note || '', updatedAt: t.updated_at,
-  };
-}
-
 export async function ensureFinanceSetup(state) {
   if (!householdId) return state.finance;
   const finance = state.finance || emptyFinance();
-  const missingKinds = ['checking', 'brokerage'].filter(kind => !finance.accounts?.[kind]);
+  const missingKinds = ['checking'].filter(kind => !finance.accounts?.[kind]);
   if (missingKinds.length) {
     const rows = missingKinds.map(kind => ({
       household_id: householdId, kind,
-      name: kind === 'checking' ? 'Checking' : 'Brokerage emergency fund',
-      current_balance: kind === 'checking' ? currentMonthBalance(state) : 0,
+      name: 'Checking',
+      current_balance: currentMonthBalance(state),
       updated_by: currentUserId,
     }));
     const { data } = assertOk(await requireSupabase().from('accounts').upsert(rows, { onConflict: 'household_id,kind' }).select('*'), 'Create shared accounts');
@@ -166,7 +155,6 @@ export async function ensureFinanceSetup(state) {
     household_id: householdId,
     minimum_checking: finance.settings?.minimumChecking ?? 3000,
     target_checking: finance.settings?.targetChecking ?? 4000,
-    emergency_fund_annual_amount: finance.settings?.emergencyFundAnnualAmount ?? 0,
     forecast_months: finance.settings?.forecastMonths ?? 3,
   };
   const { data: savedSettings } = assertOk(await requireSupabase().from('household_settings')
@@ -174,7 +162,6 @@ export async function ensureFinanceSetup(state) {
   finance.settings = {
     minimumChecking: Number(savedSettings.minimum_checking),
     targetChecking: Number(savedSettings.target_checking),
-    emergencyFundAnnualAmount: Number(savedSettings.emergency_fund_annual_amount || 0),
     forecastMonths: Number(savedSettings.forecast_months),
   };
   state.finance = finance;
@@ -207,35 +194,18 @@ export async function updateCashSettings(settings) {
     household_id: householdId,
     minimum_checking: settings.minimumChecking,
     target_checking: settings.targetChecking,
-    emergency_fund_annual_amount: settings.emergencyFundAnnualAmount || 0,
     forecast_months: settings.forecastMonths,
     updated_at: new Date().toISOString(),
   };
   const { data } = assertOk(await requireSupabase().from('household_settings')
     .upsert(row, { onConflict: 'household_id' }).select('*').single(), 'Update cash safety settings');
-  return { minimumChecking: Number(data.minimum_checking), targetChecking: Number(data.target_checking), emergencyFundAnnualAmount: Number(data.emergency_fund_annual_amount || 0), forecastMonths: Number(data.forecast_months) };
-}
-
-export async function savePlannedTransfer(transfer) {
-  const userId = await getCurrentUserId();
-  const row = {
-    id: transfer.id || undefined, household_id: householdId,
-    from_account_id: transfer.fromAccountId, to_account_id: transfer.toAccountId,
-    amount: transfer.amount, transfer_date: transfer.date, status: transfer.status || 'planned',
-    note: transfer.note || '', updated_at: new Date().toISOString(), created_by: userId,
-  };
-  if (!row.id) delete row.id;
-  const query = row.id
-    ? requireSupabase().from('planned_transfers').update(row).eq('id', row.id)
-    : requireSupabase().from('planned_transfers').insert(row);
-  const { data } = assertOk(await query.select('*').single(), 'Save planned transfer');
-  return transferFromRow(data);
+  return { minimumChecking: Number(data.minimum_checking), targetChecking: Number(data.target_checking), forecastMonths: Number(data.forecast_months) };
 }
 
 export async function subscribeHouseholdChanges(onChange) {
   if (!householdId) return () => {};
   const channel = requireSupabase().channel(`household-cash-${householdId}`);
-  for (const table of ['accounts', 'balance_snapshots', 'household_settings', 'planned_transfers', 'months', 'trips']) {
+  for (const table of ['accounts', 'balance_snapshots', 'household_settings', 'months', 'trips']) {
     channel.on('postgres_changes', { event: '*', schema: 'public', table, filter: `household_id=eq.${householdId}` }, onChange);
   }
   channel.subscribe();
