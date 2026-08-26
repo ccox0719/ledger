@@ -99,7 +99,7 @@ export async function loadState() {
       cat: !t.category || t.category === 'other' ? undefined : t.category,
       workTravel: t.work_travel,
       possibleSubscription: t.review_status === 'possible_subscription',
-      subscriptionStatus: ['possible_subscription','subscription_keep','subscription_cancel'].includes(t.review_status) ? t.review_status : '',
+      subscriptionStatus: ['possible_subscription','subscription_keep','subscription_cancel','subscription_done','subscription_ignore'].includes(t.review_status) ? t.review_status : '',
     });
   });
 

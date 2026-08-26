@@ -1016,12 +1016,23 @@ function buildYearActuals(year=yearKey()){
   return {byLine,uncategorized,byMonth,bySource,workTravel,income,skipped,transfers,spending,count:collectYearTxns(year).length};
 }
 
-const SUBSCRIPTION_HINTS=/NETFLIX|HULU|SPOTIFY|APPLE\.COM\/BILL|AMAZON PRIME|AUDIBLE|KINDLE|CHATGPT|OPENAI|HBO|MAX\.COM|DISNEY|PEACOCK|PARAMOUNT|YOUTUBE|ICLOUD|DROPBOX|MICROSOFT 365|ADOBE|CANVA|NYTIMES|WALL STREET JOURNAL|WSJ|STRAVA|PLANET FITNESS|GYM|MEMBERSHIP|SUBSCRIPTION/i;
+const SUBSCRIPTION_HINTS=/NETFLIX|HULU|SPOTIFY|APPLE\.COM\/BILL|AMAZON PRIME|AUDIBLE|KINDLE|CHATGPT|OPENAI|CLAUDE AI|HBO|MAX\.COM|DISNEY\+|DISNEY PLUS|PEACOCK|PARAMOUNT|YOUTUBE (PREMIUM|TV|MUSIC)|ICLOUD|DROPBOX|MICROSOFT 365|ADOBE|CANVA|NYTIMES|WALL STREET JOURNAL|WSJ|STRAVA|PLANET FITNESS|BEACHBODY|MEMBERSHIP FEE|SUBSCRIPTION/i;
+const SUBSCRIPTION_EXCLUSIONS=/ISAVE 529|HOME MTG|MORTGAGE|STATE FAIR|CHASE TRAVEL|PARKING|TREASURER|RADIOLOGY|LMFT|SANITATION|CHURCH|FAMILY EYE CARE|VAIL RESORTS|LITTLE CAESARS|BURGER SHED|RAMEN|CITY MARKET|DOLLAR TREE|SCHEELS|POSHMARK|ETSY|AZAZIE|FLIX BREWHOUSE/i;
 function subscriptionMerchantKey(desc){
-  return String(desc||'')
+  const original=String(desc||'').toUpperCase();
+  if(/AMAZON PRIME/.test(original))return 'AMAZON PRIME';
+  if(/AUDIBLE/.test(original))return 'AUDIBLE';
+  if(/KINDLE/.test(original))return 'KINDLE';
+  if(/AMAZON (MKTPL|MARKETPLACE|MARK|COM)/.test(original))return 'AMAZON PURCHASES';
+  if(/NETFLIX/.test(original))return 'NETFLIX';
+  if(/OPENAI|CHATGPT/.test(original))return 'OPENAI CHATGPT';
+  if(/CLAUDE AI/.test(original))return 'CLAUDE AI';
+  if(/APPLE COM BILL|APPLE\.COM\/BILL/.test(original))return 'APPLE COM BILL';
+  return original
     .toUpperCase()
     .replace(/^(DEBIT CARD PURCHASE|ELECTRONIC WITHDRAWAL|RECURRING PAYMENT|PURCHASE)\s+/,'')
     .replace(/\b(REF|REFERENCE|AUTH|TRACE|ORDER|TRANSACTION)\s*[A-Z0-9-]+\b/g,' ')
+    .replace(/\b(?=[A-Z0-9]{7,}\b)(?=[A-Z0-9]*[A-Z])(?=[A-Z0-9]*\d)[A-Z0-9]+\b/g,' ')
     .replace(/\b\d{4,}\b/g,' ')
     .replace(/[^A-Z0-9]+/g,' ')
     .replace(/\s+/g,' ')
@@ -1030,59 +1041,76 @@ function subscriptionMerchantKey(desc){
 function subscriptionMerchantName(key){
   return key.toLowerCase().replace(/\b\w/g,ch=>ch.toUpperCase())||'Unknown merchant';
 }
-function subscriptionCandidates(){
-  const groups=new Map();
-  Object.entries(state.months||{}).forEach(([month,m])=>(m.imported||[]).forEach(t=>{
+function allImportedSubscriptionRows(){
+  const unique=new Map();
+  Object.entries(state.months||{}).forEach(([fallbackMonth,m])=>(m.imported||[]).forEach(t=>{
     if(t.type==='Payment'||Number(t.amount)>=0||t.workTravel)return;
     const cat=reviewCategory(t);
     if(['__INCOME__','__CARDPAY__','__SKIP__'].includes(cat))return;
+    const month=txnMonthKey(t.date)||(/^\d{4}-\d{2}$/.test(fallbackMonth)?fallbackMonth:'');
+    const key=txnKey(t);
+    if(!unique.has(key))unique.set(key,{t,month,date:normTxnDate(t.date)});
+  }));
+  return [...unique.values()];
+}
+function subscriptionCandidates(){
+  const groups=new Map();
+  allImportedSubscriptionRows().forEach(({t,month,date})=>{
     const key=subscriptionMerchantKey(t.desc);
     if(!key)return;
     if(!groups.has(key))groups.set(key,[]);
-    groups.get(key).push({t,month});
-  }));
+    groups.get(key).push({t,month,date});
+  });
   const candidates=[];
   for(const [key,rows] of groups){
-    const months=[...new Set(rows.map(r=>r.month))].sort();
+    const months=[...new Set(rows.map(r=>r.month).filter(Boolean))].sort();
+    const datedRows=rows.filter(r=>/^\d{4}-\d{2}-\d{2}$/.test(r.date)).sort((a,b)=>a.date.localeCompare(b.date));
+    const uniqueDates=[...new Set(datedRows.map(r=>r.date))];
     const amounts=rows.map(r=>Math.abs(Number(r.t.amount)||0)).sort((a,b)=>a-b);
     const median=amounts[Math.floor(amounts.length/2)]||0;
     const consistent=amounts.length>1&&(amounts[amounts.length-1]-amounts[0])<=Math.max(2,median*.12);
     const explicit=rows.some(r=>r.t.subscriptionStatus||r.t.possibleSubscription);
     const hinted=rows.some(r=>SUBSCRIPTION_HINTS.test(r.t.desc||''));
-    const recurring=months.length>=2&&rows.length/months.length<=2&&consistent;
+    const gaps=uniqueDates.slice(1).map((date,i)=>(parseISODate(date)-parseISODate(uniqueDates[i]))/86400000).sort((a,b)=>a-b);
+    const medianGap=gaps[Math.floor(gaps.length/2)]||0;
+    const monthlyPattern=uniqueDates.length>=3&&months.length>=3&&rows.length/months.length<=1.5&&medianGap>=20&&medianGap<=40;
+    const recurring=monthlyPattern&&consistent&&median<=500&&!SUBSCRIPTION_EXCLUSIONS.test(key);
     if(!explicit&&!hinted&&!recurring)continue;
-    const statusRows=rows.filter(r=>r.t.subscriptionStatus);
+    const statusRows=rows.filter(r=>r.t.subscriptionStatus).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
     const status=statusRows.length?statusRows[statusRows.length-1].t.subscriptionStatus:(explicit?'possible_subscription':'');
     const total=amounts.reduce((sum,n)=>sum+n,0);
+    const latest=datedRows[datedRows.length-1]||rows[rows.length-1];
     candidates.push({
       key,rows,months,status,
       name:subscriptionMerchantName(key),
       monthly:total/Math.max(1,months.length),
-      lastAmount:amounts[amounts.length-1]||0,
-      lastMonth:months[months.length-1]||'',
+      lastAmount:Math.abs(Number(latest.t.amount)||0),
+      lastMonth:latest.month||'',
       detected:!explicit,
     });
   }
-  const rank={subscription_cancel:0,'':1,possible_subscription:1,subscription_keep:2};
+  const rank={subscription_cancel:0,'':1,possible_subscription:1,subscription_keep:2,subscription_done:3,subscription_ignore:4};
   return candidates.sort((a,b)=>(rank[a.status]??1)-(rank[b.status]??1)||b.monthly-a.monthly||a.name.localeCompare(b.name));
 }
 function renderSubscriptions(){
   const c=document.getElementById('subscriptionsView');
   const subscriptions=subscriptionCandidates();
+  const active=subscriptions.filter(s=>!['subscription_done','subscription_ignore'].includes(s.status));
+  const archived=subscriptions.filter(s=>['subscription_done','subscription_ignore'].includes(s.status));
   if(!subscriptions.length){
     c.innerHTML=`<div class="empty-state" style="text-align:center;padding:30px">No recurring subscription-like charges were found yet. Import at least two months of statements, or tag a charge from the transaction review.</div>`;
     return;
   }
-  const monthly=subscriptions.reduce((sum,s)=>sum+s.monthly,0);
-  const cancelCount=subscriptions.filter(s=>s.status==='subscription_cancel').length;
+  const monthly=active.reduce((sum,s)=>sum+s.monthly,0);
+  const cancelCount=active.filter(s=>s.status==='subscription_cancel').length;
   let html=`<div class="subscription-summary">
-    <article class="safety-card"><span>Possible subscriptions</span><strong>${subscriptions.length}</strong></article>
+    <article class="safety-card"><span>To review</span><strong>${active.filter(s=>!s.status||s.status==='possible_subscription').length}</strong></article>
     <article class="safety-card"><span>Estimated monthly cost</span><strong>${money(monthly)}</strong></article>
     <article class="safety-card ${cancelCount?'attention':''}"><span>Marked to cancel</span><strong>${cancelCount}</strong></article>
   </div>
-  <p class="src-note" style="margin-bottom:12px">Recurring charges are detected from similar merchant names and amounts across imported statements. “Cancel” marks your checklist; use “Find cancellation” to open the provider search.</p>
+  <p class="src-note" style="margin-bottom:12px">Detection now requires a stable monthly pattern or a known subscription merchant. Ignore removes every matching merchant charge at once. Cancel adds it to your checklist; Done archives it after you cancel with the provider.</p>
   <div class="subscription-list">`;
-  subscriptions.forEach((s,i)=>{
+  active.forEach((s,i)=>{
     const cls=s.status==='subscription_cancel'?'cancel':s.status==='subscription_keep'?'keep':'';
     const encoded=encodeURIComponent(`${s.name} cancel subscription`);
     html+=`<article class="subscription-card ${cls}">
@@ -1091,22 +1119,40 @@ function renderSubscriptions(){
       <div class="subscription-metric">${money(s.lastAmount)}<small>latest · ${esc(s.lastMonth)}</small></div>
       <div class="subscription-actions">
         <button class="keep ${s.status==='subscription_keep'?'on':''}" data-sub-status="subscription_keep" data-sub-idx="${i}">Keep</button>
-        <button class="cancel ${s.status==='subscription_cancel'?'on':''}" data-sub-status="subscription_cancel" data-sub-idx="${i}">Cancel</button>
+        <button class="cancel ${s.status==='subscription_cancel'?'on':''}" data-sub-status="subscription_cancel" data-sub-idx="${i}">${s.status==='subscription_cancel'?'To cancel':'Cancel'}</button>
+        ${s.status==='subscription_cancel'?`<button class="done" data-sub-status="subscription_done" data-sub-idx="${i}">✓ Done</button>`:''}
+        <button data-sub-status="subscription_ignore" data-sub-idx="${i}">Ignore merchant</button>
         <a href="https://www.google.com/search?q=${encoded}" target="_blank" rel="noopener noreferrer">Find cancellation</a>
       </div>
     </article>`;
   });
-  c.innerHTML=html+'</div>';
-  c.querySelectorAll('[data-sub-status]').forEach(button=>button.onclick=()=>{
-    const subscription=subscriptions[Number(button.dataset.subIdx)];
+  html+='</div>';
+  if(archived.length){
+    html+=`<details class="subscription-archived"><summary>Completed and ignored (${archived.length})</summary><div class="subscription-list">${archived.map((s,i)=>`<article class="subscription-card keep"><div class="subscription-name">${esc(s.name)}<small>${s.status==='subscription_done'?'Cancelled':'Ignored merchant'}</small></div><div class="subscription-actions"><button data-restore-sub="${i}">Restore</button></div></article>`).join('')}</div></details>`;
+  }
+  c.innerHTML=html;
+  c.querySelectorAll('[data-sub-status]').forEach(button=>button.onclick=async()=>{
+    const subscription=active[Number(button.dataset.subIdx)];
     if(!subscription)return;
     const next=subscription.status===button.dataset.subStatus?'possible_subscription':button.dataset.subStatus;
-    subscription.rows.forEach(({t})=>{
+    const matching=allImportedSubscriptionRows().filter(({t})=>subscriptionMerchantKey(t.desc)===subscription.key);
+    matching.forEach(({t})=>{
       t.subscriptionStatus=next;
       t.possibleSubscription=next==='possible_subscription';
     });
     save();
-    renderSubscriptions();
+    try{await flushSave(state);renderSubscriptions();}
+    catch(err){await noticeModal('Subscription status could not be saved',err.message||String(err));}
+  });
+  c.querySelectorAll('[data-restore-sub]').forEach(button=>button.onclick=async()=>{
+    const subscription=archived[Number(button.dataset.restoreSub)];
+    if(!subscription)return;
+    allImportedSubscriptionRows().filter(({t})=>subscriptionMerchantKey(t.desc)===subscription.key).forEach(({t})=>{
+      t.subscriptionStatus='possible_subscription';t.possibleSubscription=true;
+    });
+    save();
+    try{await flushSave(state);renderSubscriptions();}
+    catch(err){await noticeModal('Subscription status could not be saved',err.message||String(err));}
   });
 }
 

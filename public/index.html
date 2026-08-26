@@ -178,7 +178,11 @@
   .subscription-actions button,.subscription-actions a{border:1px solid var(--line);background:var(--surface-2);color:var(--text-dim);border-radius:7px;padding:5px 8px;font-size:.68rem;font-weight:700;text-decoration:none;cursor:pointer;}
   .subscription-actions button.keep.on{border-color:var(--mint);color:var(--mint);}
   .subscription-actions button.cancel.on{border-color:var(--red);color:var(--red);}
+  .subscription-actions button.done{border-color:var(--mint);color:var(--mint);}
   .subscription-actions a:hover{border-color:var(--amber);color:var(--amber);}
+  .subscription-archived{margin-top:16px;border:1px solid var(--line);border-radius:var(--radius);padding:10px;background:var(--surface);}
+  .subscription-archived summary{cursor:pointer;color:var(--text-dim);font-size:.78rem;font-weight:700;margin-bottom:8px;}
+  .subscription-archived .subscription-card{grid-template-columns:minmax(160px,1fr) auto;padding:9px 11px;}
   @media(max-width:760px){.subscription-card{grid-template-columns:minmax(130px,1fr) 90px}.subscription-actions{grid-column:1/-1;justify-content:flex-start}.subscription-summary{grid-template-columns:1fr}.subscription-card>.subscription-metric:nth-child(3){display:none}}
   .trip-banner{background:rgba(224,164,88,.08);border:1px solid rgba(224,164,88,.4);border-radius:var(--radius);padding:14px;margin-bottom:18px;}
   .trip-banner .tb-head{font-size:.8rem;font-weight:700;color:var(--amber);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;}
